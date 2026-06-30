@@ -104,7 +104,8 @@ $cfgLocal = "$repo\config.local.toml"
 url = "$webhook"
 
 [winccbox]
-target = "winccbox"
+host = "$wincHost"
+user = "$wincUser"
 key = "$($key -replace '\\','/')"
 python32 = "C:/Users/$wincUser/Python311x86/python.exe"
 reader = "C:/Users/$wincUser/wincc-bridge/box/oledb_reader.py"

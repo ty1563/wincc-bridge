@@ -3,12 +3,11 @@
 url = "https://n8n.svnagentic.site/webhook/<id>?user=1"
 
 [winccbox]
-# Cach 1: dung ssh alias (setup.bat tao alias trong ~/.ssh/config)
-target = "winccbox"
-# Cach 2 (thay cho target): host + user + key
-# host = "169.254.172.61"
-# user = "dell"
+# Ket noi TUONG MINH dell@IP + key (chac hon alias, khong phu thuoc ~/.ssh/config)
+host = "169.254.172.61"
+user = "dell"
 key = "C:/Users/<bridgeuser>/.ssh/winccbox_ed25519"
+# (tuy chon) dung alias thay cho host/user: target = "winccbox"
 python32 = "C:/Users/dell/Python311x86/python.exe"
 reader = "C:/Users/dell/wincc-bridge/box/oledb_reader.py"
 

@@ -13,7 +13,7 @@ def collect(cfg):
     target = w.get("target") or f'{w["user"]}@{w["host"]}'
     cmd = ssh + [target, w["python32"], w["reader"]]
     last = ""
-    for attempt in range(3):
+    for attempt in range(5):  # link APIPA chap chon -> retry nhieu
         try:
             p = subprocess.run(cmd, capture_output=True, text=True, timeout=150,
                                encoding="utf-8", errors="replace")
