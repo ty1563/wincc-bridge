@@ -3,6 +3,8 @@ import json
 import time
 import subprocess
 
+from bridge import detect
+
 
 def collect(cfg):
     w = cfg["winccbox"]
@@ -10,7 +12,13 @@ def collect(cfg):
            "-o", "StrictHostKeyChecking=accept-new"]
     if w.get("key"):
         ssh += ["-i", w["key"]]
-    target = w.get("target") or f'{w["user"]}@{w["host"]}'
+    if w.get("target"):
+        target = w["target"]
+    else:
+        host, changed = detect.resolve_host(cfg)  # chiu duoc APIPA doi IP
+        if changed:
+            print(f"[detect] box IP doi -> dung {host}", flush=True)
+        target = f'{w["user"]}@{host}'
     cmd = ssh + [target, w["python32"], w["reader"]]
     last = ""
     for attempt in range(5):  # link APIPA chap chon -> retry nhieu

@@ -16,6 +16,23 @@ def log(msg):
     print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] {msg}", flush=True)
 
 
+def hint(err):
+    e = err.lower()
+    if "timeout" in e or "timed out" in e:
+        return "box khong toi duoc - APIPA doi IP (collect se tu detect) / chua cam cap / nen dat IP tinh"
+    if "permission denied" in e or "publickey" in e:
+        return "SSH key chua duoc cap quyen tren box (administrators_authorized_keys)"
+    if "win32" in e and "module" in e:
+        return "Python 32-bit tren box thieu pywin32"
+    if "class not registered" in e or "80040154" in e:
+        return "bitness sai (can py 32-bit) hoac OLE-DB provider chua dang ky"
+    if "json" in e:
+        return "reader khong tra JSON - kiem tra reader tren box"
+    if "post" in e or "urlopen" in e or "http" in e:
+        return "POST n8n loi - may tram thieu internet / webhook sai"
+    return "chay 'python -m bridge.diagnose' de chan doan chi tiet"
+
+
 def one_snapshot(cfg):
     snap = collect.collect(cfg)
     payload = {"source": "wincc-bridge"}
@@ -37,6 +54,7 @@ def main():
             one_snapshot(cfg)
         except Exception as e:
             log(f"snapshot ERR: {e}")
+            log(f"  hint: {hint(str(e))}")
         if ota_on and (time.time() - last_ota) >= ota_iv:
             last_ota = time.time()
             try:

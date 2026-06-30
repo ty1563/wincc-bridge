@@ -1,0 +1,10 @@
+==== WinCC Bridge DIAGNOSE @ 2026-06-30 16:00:12 ====
+[i] may: WIN-LI7B0FQVSQU | Windows 10 | user=vanty
+[i] python: 3.11.9 64-bit
+[OK] ssh: C:\WINDOWS\System32\OpenSSH\ssh.EXE
+[OK] scp: C:\WINDOWS\System32\OpenSSH\scp.EXE
+[OK] git: C:\Program Files\Git\cmd\git.EXE
+[OK] config: host=169.254.172.61 user=dell reader=C:/Users/dell/win32deploy/oledb_reader.py
+[OK] detect box: 169.254.172.61
+[X] TCP 22: TIMEOUT -> box khong toi duoc: SAI IP (chay 'arp -a'), CHUA CAM CAP, hoac sshd TAT. Khuyen dat IP tinh.
+

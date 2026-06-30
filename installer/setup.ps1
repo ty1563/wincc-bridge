@@ -135,11 +135,13 @@ if ($hasGit) {
   git -C $repo reset --hard -q origin/main
   Ok "git tracking origin/main"
 } else { Warn "Khong co git -> bo qua git tracking, OTA dung HTTP-zip" }
-# day reader moi sang box (neu ssh thong)
+# day reader moi sang box (best-effort, dell@IP tuong minh)
 $boxDir = "C:/Users/$wincUser/wincc-bridge/box"
-& ssh -o BatchMode=yes -o ConnectTimeout=10 winccbox "powershell -NoProfile -Command \"New-Item -ItemType Directory -Force '$boxDir' | Out-Null\"" 2>$null | Out-Null
-& scp -q -o BatchMode=yes "$repo\box\oledb_reader.py" "winccbox:$boxDir/oledb_reader.py" 2>$null
-Ok "da day oledb_reader.py sang box"
+$boxWin = ($boxDir -replace '/', '\')
+$wb = "$wincUser@$wincHost"
+& ssh -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new -i $key $wb "mkdir $boxWin" 2>$null
+& scp -q -o BatchMode=yes -o StrictHostKeyChecking=accept-new -i $key "$repo\box\oledb_reader.py" "${wb}:$boxDir/oledb_reader.py" 2>$null
+if ($LASTEXITCODE -eq 0) { Ok "da day oledb_reader.py sang box" } else { Warn "Chua day reader sang box (box chua ket noi) - service se thu khi OTA" }
 
 # ---------- 8) Dang ky NSSM service (auto-start) ----------
 Info "[8/8] Dang ky service $SVC (auto-start)"
@@ -165,5 +167,8 @@ Start-Sleep 3
 $st = (& $nssm status $SVC)
 Ok "service status: $st"
 Write-Host ""
-Write-Host "HOAN TAT. Log: $repo\logs\service.log" -ForegroundColor Green
+Info "Chan doan he thong (diagnose) - kiem tra + doan loi:"
+try { & $py "$repo\bridge\diagnose.py" } catch { Warn "diagnose loi: $_" }
+Write-Host ""
+Write-Host "HOAN TAT. Log: $repo\logs\service.log | $repo\logs\diagnose.log" -ForegroundColor Green
 Write-Host "Lenh huu ich: `"$nssm`" status $SVC | restart $SVC | stop $SVC" -ForegroundColor DarkGray
