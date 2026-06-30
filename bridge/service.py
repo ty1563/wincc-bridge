@@ -43,10 +43,15 @@ def one_snapshot(cfg, ping=None):
         log(f"collect ERR: {e}")
         log(f"  hint: {hint(str(e))}")
         snap = {"error": str(e)[:300], "tags": {}}
-    payload = {"source": "wincc-bridge"}
+    payload = {"source": "wincc-bridge", "version": collect.local_version()}
     if ping:
         payload["ping"] = ping
     payload.update(snap)
+    if "error" in snap:
+        try:
+            payload["diag"] = collect.diagnostics(cfg)
+        except Exception as e:
+            payload["diag"] = {"diag_err": str(e)[:200]}
     try:
         status, _ = poster.post(cfg, payload)
         log(f"snapshot {len(snap.get('tags', {}))} tags -> HTTP {status}")

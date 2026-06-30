@@ -33,6 +33,43 @@ def _secure_key(key):
     _key_secured = True
 
 
+def local_version():
+    try:
+        from bridge.config import REPO_ROOT
+        with open(os.path.join(REPO_ROOT, "version.txt"), encoding="utf-8") as f:
+            return f.read().strip()
+    except Exception as e:
+        return f"err:{e}"
+
+
+def _run_txt(cmd, timeout=20):
+    try:
+        p = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout,
+                           encoding="utf-8", errors="replace")
+        return f"rc={p.returncode} {((p.stdout or '') + (p.stderr or '')).strip()[:300]}"
+    except Exception as e:
+        return f"EXC:{e}"
+
+
+def diagnostics(cfg):
+    """Thong tin chan doan gui kem len webhook (user theo doi qua n8n, khong can terminal):
+    version dang chay, service chay account nao, ACL key truoc/sau khi self-heal + output icacls."""
+    import platform
+    w = cfg.get("winccbox", {})
+    key = w.get("key", "")
+    d = {"version": local_version(), "node": platform.node(),
+         "whoami": _run_txt(["whoami"]), "key": key,
+         "key_acl_before": _run_txt(["icacls", key])}
+    heal = []
+    for c in (["icacls", key, "/reset"],
+              ["icacls", key, "/inheritance:r", "/grant:r", "*S-1-5-18:F", "*S-1-5-32-544:F"],
+              ["icacls", key, "/setowner", "*S-1-5-32-544"]):
+        heal.append(" ".join(c[2:]) + " | " + _run_txt(c))
+    d["heal"] = heal
+    d["key_acl_after"] = _run_txt(["icacls", key])
+    return d
+
+
 def collect(cfg):
     w = cfg["winccbox"]
     if w.get("key"):
