@@ -91,8 +91,12 @@ Info "[5/8] SSH key"
 $sshDir = "$env:USERPROFILE\.ssh"; if (-not (Test-Path $sshDir)) { New-Item -ItemType Directory $sshDir | Out-Null }
 $key = "$sshDir\winccbox_ed25519"
 if (-not (Test-Path $key)) { & ssh-keygen -t ed25519 -f $key -N '""' -C "wincc-bridge" *> $null; Ok "Da tao key moi" } else { Ok "Dung key san co" }
-# Cho SYSTEM dung key (service chay LocalSystem). Dung SID (S-1-5-18=SYSTEM, S-1-5-32-544=Administrators) -> doc lap ngon ngu may.
-& icacls $key /inheritance:r /grant "*S-1-5-18:F" /grant "*S-1-5-32-544:F" /grant "$($env:USERNAME):R" 2>$null | Out-Null
+# Service chay LocalSystem -> key CHI cho SYSTEM + Administrators (SID S-1-5-18, S-1-5-32-544).
+# TUYET DOI KHONG grant user thuong (vd DELL): OpenSSH se bao "Bad permissions" va tu choi dung key.
+# User van la admin nen doc duoc qua nhom Administrators khi can test tay.
+# /reset truoc de xoa ACE thua tu key cu (neu key da ton tai), roi /inheritance:r de bo quyen thua ke.
+& icacls $key /reset 2>$null | Out-Null
+& icacls $key /inheritance:r /grant:r "*S-1-5-18:F" "*S-1-5-32-544:F" 2>$null | Out-Null
 & icacls $key /setowner "*S-1-5-32-544" 2>$null | Out-Null
 $cfgSsh = "$sshDir\config"
 if (-not (Test-Path $cfgSsh) -or -not (Select-String -Path $cfgSsh -SimpleMatch "Host winccbox" -Quiet -ErrorAction SilentlyContinue)) {
