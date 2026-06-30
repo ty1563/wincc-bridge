@@ -1,0 +1,23 @@
+# Copy thanh config.local.toml va dien. KHONG commit file config.local.toml (da gitignore).
+[webhook]
+url = "https://n8n.svnagentic.site/webhook/<id>?user=1"
+
+[winccbox]
+# Cach 1: dung ssh alias (setup.bat tao alias trong ~/.ssh/config)
+target = "winccbox"
+# Cach 2 (thay cho target): host + user + key
+# host = "169.254.172.61"
+# user = "dell"
+key = "C:/Users/<bridgeuser>/.ssh/winccbox_ed25519"
+python32 = "C:/Users/dell/Python311x86/python.exe"
+reader = "C:/Users/dell/wincc-bridge/box/oledb_reader.py"
+
+[intervals]
+snapshot_sec = 300
+ota_sec = 900
+
+[ota]
+enabled = true
+repo = "https://github.com/ty1563/wincc-bridge.git"
+branch = "main"
+# token nhap luc setup.bat -> git remote duoc set kem token, KHONG luu o day
