@@ -33,37 +33,37 @@ def hint(err):
     return "chay 'python -m bridge.diagnose' de chan doan chi tiet"
 
 
-def one_snapshot(cfg):
-    snap = collect.collect(cfg)
-    payload = {"source": "wincc-bridge"}
-    payload.update(snap)
-    status, _ = poster.post(cfg, payload)
-    log(f"snapshot {len(snap.get('tags', {}))} tags -> HTTP {status}")
-
-
-def once(cfg):
-    """Smoke-test luc setup: LUON co gang POST len webhook (ke ca khi box loi)
-    de webhook nhan duoc 1 su kien ngay lan dau setup."""
+def one_snapshot(cfg, ping=None):
+    """LUON post len webhook moi chu ky (heartbeat): box OK thi gui data,
+    box loi thi van gui payload co field 'error'. Nho vay n8n nhan ping DEU
+    moi chu ky 5 phut thay vi cam khi box chap chon (APIPA)."""
     try:
         snap = collect.collect(cfg)
     except Exception as e:
-        log(f"collect loi: {e}")
+        log(f"collect ERR: {e}")
         log(f"  hint: {hint(str(e))}")
         snap = {"error": str(e)[:300], "tags": {}}
-    payload = {"source": "wincc-bridge", "ping": "setup"}
+    payload = {"source": "wincc-bridge"}
+    if ping:
+        payload["ping"] = ping
     payload.update(snap)
     try:
         status, _ = poster.post(cfg, payload)
-        log(f"PING setup: {len(snap.get('tags', {}))} tags -> webhook HTTP {status}")
+        log(f"snapshot {len(snap.get('tags', {}))} tags -> HTTP {status}")
     except Exception as e:
-        log(f"PING setup: POST webhook LOI: {e}")
+        log(f"POST ERR: {e}")
         log(f"  hint: {hint(str(e))}")
+
+
+def once(cfg):
+    """Smoke-test luc setup: post 1 snapshot roi thoat."""
+    log("PING setup (--once): gui 1 snapshot len webhook roi thoat")
+    one_snapshot(cfg, ping="setup")
 
 
 def main():
     cfg = config.load()
     if "--once" in sys.argv:
-        log("PING setup (--once): gui 1 snapshot len webhook roi thoat")
         once(cfg)
         return
     snap_iv = int(cfg["intervals"]["snapshot_sec"])

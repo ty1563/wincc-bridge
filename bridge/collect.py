@@ -21,9 +21,11 @@ def collect(cfg):
         target = f'{w["user"]}@{host}'
     cmd = ssh + [target, w["python32"], w["reader"]]
     last = ""
-    for attempt in range(5):  # link APIPA chap chon -> retry nhieu
+    # Gioi han tong thoi gian < chu ky 5 phut: 3 lan x (90s timeout + 2s) ~ 276s.
+    # Box unreachable thi ConnectTimeout=12 fail nhanh (~42s) -> loop giu nhip ~5p.
+    for attempt in range(3):  # link APIPA chap chon -> retry
         try:
-            p = subprocess.run(cmd, capture_output=True, text=True, timeout=150,
+            p = subprocess.run(cmd, capture_output=True, text=True, timeout=90,
                                encoding="utf-8", errors="replace")
             if p.returncode == 0 and p.stdout.strip():
                 try:
@@ -34,5 +36,5 @@ def collect(cfg):
                 last = (p.stderr or p.stdout or "rong")[:200]
         except subprocess.TimeoutExpired:
             last = "ssh timeout"
-        time.sleep(3)
+        time.sleep(2)
     raise RuntimeError(f"collect that bai sau 3 lan: {last}")
