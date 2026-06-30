@@ -41,8 +41,31 @@ def one_snapshot(cfg):
     log(f"snapshot {len(snap.get('tags', {}))} tags -> HTTP {status}")
 
 
+def once(cfg):
+    """Smoke-test luc setup: LUON co gang POST len webhook (ke ca khi box loi)
+    de webhook nhan duoc 1 su kien ngay lan dau setup."""
+    try:
+        snap = collect.collect(cfg)
+    except Exception as e:
+        log(f"collect loi: {e}")
+        log(f"  hint: {hint(str(e))}")
+        snap = {"error": str(e)[:300], "tags": {}}
+    payload = {"source": "wincc-bridge", "ping": "setup"}
+    payload.update(snap)
+    try:
+        status, _ = poster.post(cfg, payload)
+        log(f"PING setup: {len(snap.get('tags', {}))} tags -> webhook HTTP {status}")
+    except Exception as e:
+        log(f"PING setup: POST webhook LOI: {e}")
+        log(f"  hint: {hint(str(e))}")
+
+
 def main():
     cfg = config.load()
+    if "--once" in sys.argv:
+        log("PING setup (--once): gui 1 snapshot len webhook roi thoat")
+        once(cfg)
+        return
     snap_iv = int(cfg["intervals"]["snapshot_sec"])
     ota_iv = int(cfg["intervals"].get("ota_sec", 900))
     ota_on = bool(cfg.get("ota", {}).get("enabled"))

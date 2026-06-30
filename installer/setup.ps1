@@ -204,5 +204,8 @@ Write-Host ""
 Info "Chan doan he thong (diagnose) - kiem tra + doan loi:"
 try { & $py "$repo\bridge\diagnose.py" } catch { Warn "diagnose loi: $_" }
 Write-Host ""
+Info "Ping dau tien -> webhook (kiem tra ca pipeline ngay bay gio):"
+try { & $py "$repo\bridge\service.py" --once } catch { Warn "ping loi: $_" }
+Write-Host ""
 Write-Host "HOAN TAT. Log: $repo\logs\service.log | $repo\logs\diagnose.log" -ForegroundColor Green
 Write-Host "Lenh huu ich: `"$nssm`" status $SVC | restart $SVC | stop $SVC" -ForegroundColor DarkGray
