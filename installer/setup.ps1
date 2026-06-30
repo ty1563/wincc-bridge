@@ -145,26 +145,30 @@ if ($LASTEXITCODE -eq 0) { Ok "da day oledb_reader.py sang box" } else { Warn "C
 
 # ---------- 8) Dang ky NSSM service (auto-start) ----------
 Info "[8/8] Dang ky service $SVC (auto-start)"
-& $nssm stop $SVC 2>$null | Out-Null
-& $nssm remove $SVC confirm 2>$null | Out-Null
-& $nssm install $SVC $py "$repo\bridge\service.py"
-& $nssm set $SVC AppDirectory $repo
-& $nssm set $SVC Start SERVICE_AUTO_START
-& $nssm set $SVC AppStdout "$repo\logs\service.log"
-& $nssm set $SVC AppStderr "$repo\logs\service.log"
-& $nssm set $SVC AppRotateFiles 1
-& $nssm set $SVC AppRotateBytes 5242880
+$ErrorActionPreference = "Continue"   # nssm in stderr - dung de no lam crash script
 New-Item -ItemType Directory -Force "$repo\logs" | Out-Null
+if (Get-Service $SVC -ErrorAction SilentlyContinue) {
+  & $nssm stop $SVC 2>$null
+  & $nssm remove $SVC confirm 2>$null
+  Start-Sleep 1
+}
+& $nssm install $SVC $py "$repo\bridge\service.py" 2>$null
+& $nssm set $SVC AppDirectory $repo 2>$null
+& $nssm set $SVC Start SERVICE_AUTO_START 2>$null
+& $nssm set $SVC AppStdout "$repo\logs\service.log" 2>$null
+& $nssm set $SVC AppStderr "$repo\logs\service.log" 2>$null
+& $nssm set $SVC AppRotateFiles 1 2>$null
+& $nssm set $SVC AppRotateBytes 5242880 2>$null
 # Chay service duoi tai khoan user hien tai de truy cap ~/.ssh + git
 Write-Host ""
 Warn "Service can chay duoi tai khoan cua ban (de dung SSH key + git)."
 $pwd = Read-Host "  Nhap mat khau Windows cua ban (de service auto-start khi chua dang nhap)" -AsSecureString
 $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($pwd)
 $plain = [Runtime.InteropServices.Marshal]::PtrToStringAuto($bstr)
-if ($plain) { & $nssm set $SVC ObjectName ".\$env:USERNAME" $plain | Out-Null }
-& $nssm start $SVC
+if ($plain) { & $nssm set $SVC ObjectName ".\$env:USERNAME" $plain 2>$null | Out-Null }
+& $nssm start $SVC 2>$null
 Start-Sleep 3
-$st = (& $nssm status $SVC)
+$st = (& $nssm status $SVC 2>$null)
 Ok "service status: $st"
 Write-Host ""
 Info "Chan doan he thong (diagnose) - kiem tra + doan loi:"
