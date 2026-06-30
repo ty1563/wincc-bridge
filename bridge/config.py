@@ -14,4 +14,9 @@ def load():
     if not os.path.exists(path):
         raise FileNotFoundError(f"Khong thay config: {path} (copy tu config.local.example)")
     with open(path, "rb") as f:
-        return tomllib.load(f)
+        data = f.read()
+    # PowerShell 5.1 'Set-Content -Encoding utf8' them BOM -> tomllib loi.
+    # Notepad cung hay them BOM. Bo BOM truoc khi parse cho chac.
+    if data[:3] == b"\xef\xbb\xbf":
+        data = data[3:]
+    return tomllib.loads(data.decode("utf-8"))

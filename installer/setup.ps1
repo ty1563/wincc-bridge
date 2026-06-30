@@ -124,7 +124,7 @@ if ($t -eq "ok") { Ok "SSH winccbox OK" } else { Warn "SSH chua vao duoc - kiem 
 # ---------- 6) Viet config.local.toml ----------
 Info "[6/8] config.local.toml"
 $cfgLocal = "$repo\config.local.toml"
-@"
+$cfgBody = @"
 [webhook]
 url = "$webhook"
 
@@ -143,7 +143,9 @@ ota_sec = 900
 enabled = true
 repo = "https://github.com/ty1563/wincc-bridge.git"
 branch = "main"
-"@ | Set-Content -Path $cfgLocal -Encoding utf8
+"@
+# UTF-8 KHONG BOM: tomllib (config.py) khong nuot duoc BOM ma PS5.1 '-Encoding utf8' them vao.
+[System.IO.File]::WriteAllText($cfgLocal, $cfgBody, (New-Object System.Text.UTF8Encoding $false))
 Ok $cfgLocal
 
 # ---------- 7) git tracking (OTA) + day reader sang box ----------
@@ -163,9 +165,10 @@ if ($hasGit) {
 # day reader moi sang box (best-effort, dell@IP tuong minh)
 $boxDir = "C:/Users/$wincUser/wincc-bridge/box"
 $boxWin = ($boxDir -replace '/', '\')
+$boxScpDir = "wincc-bridge/box"
 $wb = "$wincUser@$wincHost"
 & ssh -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new -i $key $wb "mkdir $boxWin" 2>$null
-& scp -q -o BatchMode=yes -o StrictHostKeyChecking=accept-new -i $key "$repo\box\oledb_reader.py" "${wb}:$boxDir/oledb_reader.py" 2>$null
+& scp -q -o BatchMode=yes -o StrictHostKeyChecking=accept-new -i $key "$repo\box\oledb_reader.py" "${wb}:$boxScpDir/oledb_reader.py" 2>$null
 if ($LASTEXITCODE -eq 0) { Ok "da day oledb_reader.py sang box" } else { Warn "Chua day reader sang box (box chua ket noi) - service se thu khi OTA" }
 
 # ---------- 8) Dang ky NSSM service (auto-start) ----------
