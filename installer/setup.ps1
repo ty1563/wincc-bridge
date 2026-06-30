@@ -184,6 +184,12 @@ if (Get-Service $SVC -ErrorAction SilentlyContinue) {
 & $nssm set $SVC AppStderr "$repo\logs\service.log" 2>$null
 & $nssm set $SVC AppRotateFiles 1 2>$null
 & $nssm set $SVC AppRotateBytes 5242880 2>$null
+# --- Tu restart khi crash/exit (gom ca OTA exit) ---
+& $nssm set $SVC AppExit Default Restart 2>$null       # thoat bat ky -> restart
+& $nssm set $SVC AppRestartDelay 5000 2>$null          # cho 5s roi restart
+& $nssm set $SVC AppThrottle 10000 2>$null             # neu chet <10s -> coi la loi, gian restart
+# --- Windows SCM recovery: neu chinh service crash -> tu restart (stop tay thi khong) ---
+& sc.exe failure $SVC reset= 86400 actions= restart/5000/restart/5000/restart/60000 2>$null | Out-Null
 # Service chay duoi LocalSystem - KHONG can mat khau Windows.
 # Dung SSH key tuong minh (-i); key da cap quyen SYSTEM o buoc 5 nen SYSTEM ssh duoc.
 & $nssm set $SVC ObjectName "LocalSystem" 2>$null | Out-Null
