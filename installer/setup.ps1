@@ -1,6 +1,8 @@
 # WinCC Bridge installer - chay tren MAY TRAM (cung LAN voi may WinCC).
 # Cai Python/git/nssm, hoi secrets, tao SSH key, dang ky NSSM service auto-start.
-$ErrorActionPreference = "Stop"
+# EAP=Continue: cac lenh native (ssh/scp/nssm/git/icacls) in stderr binh thuong,
+# khong de chung lam crash script. Cac buoc quan trong co check Test-Path rieng.
+$ErrorActionPreference = "Continue"
 $repo = Split-Path -Parent $PSScriptRoot
 $SVC = "WinCCBridge"
 $ProgressPreference = "SilentlyContinue"
@@ -11,6 +13,16 @@ function Ok($m)   { Write-Host "    $m" -ForegroundColor Green }
 function Warn($m) { Write-Host "    $m" -ForegroundColor Yellow }
 
 Info "WinCC Bridge setup | repo = $repo"
+
+# --- Don service cu (neu co) truoc khi cai lai ---
+if (Get-Service $SVC -ErrorAction SilentlyContinue) {
+  Info "Don service cu '$SVC'..."
+  & sc.exe stop $SVC 2>$null | Out-Null
+  Start-Sleep 2
+  & sc.exe delete $SVC 2>$null | Out-Null
+  Start-Sleep 2
+  Ok "da go service cu"
+}
 
 # ---------- 1) Python 3.11+ (64-bit) ----------
 Info "[1/8] Python"
@@ -26,6 +38,7 @@ if (-not $py) {
   Start-Process $pyexe -ArgumentList "/quiet","InstallAllUsers=0","PrependPath=1","Include_pip=1","Include_test=0","TargetDir=$env:USERPROFILE\Python311" -Wait
   $py = "$env:USERPROFILE\Python311\python.exe"
 }
+if (-not (Test-Path $py)) { Write-Host "[LOI] Khong cai duoc Python 3.11 - kiem tra mang/quyen" -ForegroundColor Red; Read-Host "Enter de thoat"; exit 1 }
 Ok ("python = " + $py + " (" + (& $py --version) + ")")
 
 # ---------- 2) git (TUY CHON - OTA co fallback HTTP-zip neu khong co git) ----------
@@ -55,6 +68,7 @@ if (-not (Test-Path $nssm)) {
   Expand-Archive $z "$env:TEMP\nssm" -Force
   Copy-Item "$env:TEMP\nssm\nssm-2.24\win64\nssm.exe" $nssm -Force
 }
+if (-not (Test-Path $nssm)) { Write-Host "[LOI] Khong tai duoc nssm" -ForegroundColor Red; Read-Host "Enter de thoat"; exit 1 }
 Ok "nssm = $nssm"
 
 # ---------- 4) Cau hinh (co default - repo public, khong can token) ----------
