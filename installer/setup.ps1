@@ -28,18 +28,22 @@ if (-not $py) {
 }
 Ok ("python = " + $py + " (" + (& $py --version) + ")")
 
-# ---------- 2) git ----------
-Info "[2/8] git"
-if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
-  Warn "Cai Git for Windows..."
-  $rel = Invoke-RestMethod "https://api.github.com/repos/git-for-windows/git/releases/latest" -UseBasicParsing
-  $asset = $rel.assets | Where-Object { $_.name -match '64-bit\.exe$' } | Select-Object -First 1
-  $gitexe = "$env:TEMP\$($asset.name)"
-  Invoke-WebRequest $asset.browser_download_url -OutFile $gitexe -UseBasicParsing
-  Start-Process $gitexe -ArgumentList "/VERYSILENT","/NORESTART","/SP-" -Wait
-  $env:Path += ";$env:ProgramFiles\Git\cmd"
+# ---------- 2) git (TUY CHON - OTA co fallback HTTP-zip neu khong co git) ----------
+Info "[2/8] git (tuy chon)"
+$hasGit = [bool](Get-Command git -ErrorAction SilentlyContinue)
+if (-not $hasGit) {
+  try {
+    Warn "Thu cai Git for Windows..."
+    $rel = Invoke-RestMethod "https://api.github.com/repos/git-for-windows/git/releases/latest" -UseBasicParsing
+    $asset = $rel.assets | Where-Object { $_.name -match '64-bit\.exe$' } | Select-Object -First 1
+    $gitexe = "$env:TEMP\$($asset.name)"
+    Invoke-WebRequest $asset.browser_download_url -OutFile $gitexe -UseBasicParsing
+    Start-Process $gitexe -ArgumentList "/VERYSILENT","/NORESTART","/SP-" -Wait
+    $env:Path += ";$env:ProgramFiles\Git\cmd"
+    $hasGit = [bool](Get-Command git -ErrorAction SilentlyContinue)
+  } catch { Warn "Khong cai duoc git -> OTA dung HTTP-zip (van OK)" }
 }
-Ok ("git = " + (git --version))
+if ($hasGit) { Ok ("git = " + (git --version)) } else { Warn "Khong co git -> OTA dung HTTP-zip" }
 
 # ---------- 3) nssm ----------
 Info "[3/8] nssm"
@@ -53,10 +57,10 @@ if (-not (Test-Path $nssm)) {
 }
 Ok "nssm = $nssm"
 
-# ---------- 4) Hoi secrets ----------
-Info "[4/8] Cau hinh (nhap thong tin)"
-$webhook = Read-Host "  n8n webhook URL"
-$ghtoken = Read-Host "  GitHub read-only token (PAT, de OTA git pull private repo)"
+# ---------- 4) Cau hinh (co default - repo public, khong can token) ----------
+Info "[4/8] Cau hinh"
+$defWebhook = "https://n8n.svnagentic.site/webhook/e54059c6-41f1-4854-be96-1d79f8d78797?user=1"
+$webhook = Read-Host "  n8n webhook URL (Enter = mac dinh)"; if (-not $webhook) { $webhook = $defWebhook }
 $wincHost = Read-Host "  IP may WinCC (Enter = 169.254.172.61)"; if (-not $wincHost) { $wincHost = "169.254.172.61" }
 $wincUser = Read-Host "  User may WinCC (Enter = dell)"; if (-not $wincUser) { $wincUser = "dell" }
 
@@ -117,17 +121,19 @@ branch = "main"
 Ok $cfgLocal
 
 # ---------- 7) git tracking (OTA) + day reader sang box ----------
-Info "[7/8] Git tracking + dong bo box-side"
-$remote = "https://$ghtoken@github.com/ty1563/wincc-bridge.git"
-if (-not (Test-Path "$repo\.git")) {
-  git -C $repo init -q
-  git -C $repo add -A
-  git -C $repo -c user.email=bridge@local -c user.name=bridge commit -qm bootstrap | Out-Null
-  git -C $repo remote add origin $remote
-} else { git -C $repo remote set-url origin $remote }
-git -C $repo fetch -q origin main
-git -C $repo reset --hard -q origin/main
-Ok "repo dong bo origin/main"
+Info "[7/8] Git tracking (neu co git) + dong bo box-side"
+$remote = "https://github.com/ty1563/wincc-bridge.git"
+if ($hasGit) {
+  if (-not (Test-Path "$repo\.git")) {
+    git -C $repo init -q
+    git -C $repo add -A
+    git -C $repo -c user.email=bridge@local -c user.name=bridge commit -qm bootstrap | Out-Null
+    git -C $repo remote add origin $remote
+  } else { git -C $repo remote set-url origin $remote }
+  git -C $repo fetch -q origin main
+  git -C $repo reset --hard -q origin/main
+  Ok "git tracking origin/main"
+} else { Warn "Khong co git -> bo qua git tracking, OTA dung HTTP-zip" }
 # day reader moi sang box (neu ssh thong)
 $boxDir = "C:/Users/$wincUser/wincc-bridge/box"
 & ssh -o BatchMode=yes -o ConnectTimeout=10 winccbox "powershell -NoProfile -Command \"New-Item -ItemType Directory -Force '$boxDir' | Out-Null\"" 2>$null | Out-Null
