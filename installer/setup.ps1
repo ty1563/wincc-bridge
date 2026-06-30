@@ -14,6 +14,14 @@ function Warn($m) { Write-Host "    $m" -ForegroundColor Yellow }
 
 Info "WinCC Bridge setup | repo = $repo"
 
+# --- Can quyen Administrator (dang ky Windows service) ---
+if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+  Write-Host "[LOI] Can chay bang quyen Administrator." -ForegroundColor Red
+  Write-Host "      Chuot phai setup.bat -> 'Run as administrator' roi chay lai." -ForegroundColor Yellow
+  Read-Host "Enter de thoat"
+  exit 1
+}
+
 # --- Don service cu (neu co) truoc khi cai lai ---
 if (Get-Service $SVC -ErrorAction SilentlyContinue) {
   Info "Don service cu '$SVC'..."
@@ -83,6 +91,9 @@ Info "[5/8] SSH key"
 $sshDir = "$env:USERPROFILE\.ssh"; if (-not (Test-Path $sshDir)) { New-Item -ItemType Directory $sshDir | Out-Null }
 $key = "$sshDir\winccbox_ed25519"
 if (-not (Test-Path $key)) { & ssh-keygen -t ed25519 -f $key -N '""' -C "wincc-bridge" *> $null; Ok "Da tao key moi" } else { Ok "Dung key san co" }
+# Cho SYSTEM dung key (service chay LocalSystem). Dung SID (S-1-5-18=SYSTEM, S-1-5-32-544=Administrators) -> doc lap ngon ngu may.
+& icacls $key /inheritance:r /grant "*S-1-5-18:F" /grant "*S-1-5-32-544:F" /grant "$($env:USERNAME):R" 2>$null | Out-Null
+& icacls $key /setowner "*S-1-5-32-544" 2>$null | Out-Null
 $cfgSsh = "$sshDir\config"
 if (-not (Test-Path $cfgSsh) -or -not (Select-String -Path $cfgSsh -SimpleMatch "Host winccbox" -Quiet -ErrorAction SilentlyContinue)) {
 @"
@@ -173,13 +184,9 @@ if (Get-Service $SVC -ErrorAction SilentlyContinue) {
 & $nssm set $SVC AppStderr "$repo\logs\service.log" 2>$null
 & $nssm set $SVC AppRotateFiles 1 2>$null
 & $nssm set $SVC AppRotateBytes 5242880 2>$null
-# Chay service duoi tai khoan user hien tai de truy cap ~/.ssh + git
-Write-Host ""
-Warn "Service can chay duoi tai khoan cua ban (de dung SSH key + git)."
-$pwd = Read-Host "  Nhap mat khau Windows cua ban (de service auto-start khi chua dang nhap)" -AsSecureString
-$bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($pwd)
-$plain = [Runtime.InteropServices.Marshal]::PtrToStringAuto($bstr)
-if ($plain) { & $nssm set $SVC ObjectName ".\$env:USERNAME" $plain 2>$null | Out-Null }
+# Service chay duoi LocalSystem - KHONG can mat khau Windows.
+# Dung SSH key tuong minh (-i); key da cap quyen SYSTEM o buoc 5 nen SYSTEM ssh duoc.
+& $nssm set $SVC ObjectName "LocalSystem" 2>$null | Out-Null
 & $nssm start $SVC 2>$null
 Start-Sleep 3
 $st = (& $nssm status $SVC 2>$null)
