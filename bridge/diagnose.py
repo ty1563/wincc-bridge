@@ -66,9 +66,51 @@ def main():
         L("X", "config", f"{e} -> tao config.local.toml tu config.local.example.toml")
         return _flush()
     w = cfg["winccbox"]
+    mode = (w.get("mode") or "remote").lower()
     cfg_host = w.get("host") or w.get("target")
-    L("OK", "config", f"host={cfg_host} user={w.get('user')} reader={w.get('reader')}")
-    # --- Tu detect box ---
+    L("OK", "config", f"mode={mode} host={cfg_host} user={w.get('user')} reader={w.get('reader')}")
+    # --- Che do LOCAL: bo qua het check SSH, chay reader NGAY tai cho ---
+    if mode == "local":
+        py32 = w.get("python32", "")
+        reader = w.get("reader", "")
+        if not os.path.exists(py32):
+            L("X", "python32", f"khong ton tai: {py32} -> cai Python 3.11 32-bit va sua config")
+            return _flush()
+        L("OK", "python32", py32)
+        if not os.path.exists(reader):
+            L("X", "reader", f"khong ton tai: {reader}")
+            return _flush()
+        L("OK", "reader", reader)
+        rc, out, err = _run([py32, reader], 150)
+        try:
+            d = json.loads(out.strip())
+            n = len(d.get("tags", {}))
+            if n > 0:
+                L("OK", "OLE-DB reader", f"{n} tag, catalog={d.get('catalog')}")
+            else:
+                L("!", "OLE-DB reader", f"0 tag -> WinCC Runtime chua active / archive trong. err={d.get('error','')[:120]}")
+        except json.JSONDecodeError:
+            low = ((out or "") + " " + (err or "")).lower()
+            if "no module named 'win32" in low:
+                pred = "Python 32-bit thieu pywin32 (pip install pywin32)"
+            elif "class not registered" in low or "80040154" in low:
+                pred = "Bitness SAI (Python phai la 32-bit) hoac WinCCOLEDBProvider chua dang ky"
+            else:
+                pred = "Xem out ben duoi"
+            L("X", "OLE-DB reader", f"loi -> {pred}. out={(out or err)[:160]}")
+            return _flush()
+        # webhook check
+        try:
+            from urllib.parse import urlparse
+            u = urlparse(cfg["webhook"]["url"])
+            port = u.port or (443 if u.scheme == "https" else 80)
+            s = socket.create_connection((u.hostname, port), timeout=8)
+            s.close()
+            L("OK", "webhook host", f"{u.hostname}:{port} toi duoc")
+        except Exception as e:
+            L("X", "webhook host", f"khong toi -> may THIEU INTERNET? ({e})")
+        return _flush()
+    # --- Che do REMOTE (mac dinh): tu detect box qua APIPA ---
     host, changed = detect.resolve_host(cfg)
     if not host:
         L("X", "detect box", "khong co host trong config")

@@ -87,10 +87,29 @@ def _http_update():
             shutil.copyfileobj(src, out)
 
 
-def _sync_box(cfg):
-    w = cfg["winccbox"]
+def _remote_scp_dir(w):
+    """Return an scp-safe remote directory.
+
+    Windows OpenSSH/SFTP can reject targets like user@host:C:/Users/... with
+    "invalid segment". When the reader lives under the SSH user's home, use a
+    relative path so scp resolves it from that home directory.
+    """
     reader = w["reader"].replace("\\", "/")
     box_dir = reader.rsplit("/", 1)[0]
+    user = w.get("user", "")
+    home_prefix = f"C:/Users/{user}/"
+    if user and reader.lower().startswith(home_prefix.lower()):
+        rel = reader[len(home_prefix):].rsplit("/", 1)[0]
+        return rel or "."
+    return box_dir
+
+
+def _sync_box(cfg):
+    w = cfg["winccbox"]
+    # Che do local: reader nam ngay tren may nay -> git da cap nhat, khong can scp
+    if (w.get("mode") or "").lower() == "local":
+        return
+    box_dir = _remote_scp_dir(w)
     target = w.get("target") or f'{w["user"]}@{w["host"]}'
     scp = ["scp", "-q", "-o", "BatchMode=yes", "-o", "ConnectTimeout=12",
            "-o", "StrictHostKeyChecking=accept-new"]

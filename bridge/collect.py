@@ -56,10 +56,19 @@ def diagnostics(cfg):
     version dang chay, service chay account nao, ACL key truoc/sau khi self-heal + output icacls."""
     import platform
     w = cfg.get("winccbox", {})
-    key = w.get("key", "")
+    mode = (w.get("mode") or "remote").lower()
     d = {"version": local_version(), "node": platform.node(),
-         "whoami": _run_txt(["whoami"]), "key": key,
-         "key_acl_before": _run_txt(["icacls", key])}
+         "whoami": _run_txt(["whoami"]), "mode": mode}
+    if mode == "local":
+        # Che do local: khong co SSH key -> chi report python32 + reader
+        py32 = w.get("python32", "")
+        reader = w.get("reader", "")
+        d["python32"] = f"exists={os.path.exists(py32)} path={py32}"
+        d["reader"] = f"exists={os.path.exists(reader)} path={reader}"
+        return d
+    key = w.get("key", "")
+    d["key"] = key
+    d["key_acl_before"] = _run_txt(["icacls", key])
     heal = []
     for c in (["icacls", key, "/reset"],
               ["icacls", key, "/inheritance:r", "/grant:r", "*S-1-5-18:F", "*S-1-5-32-544:F"],
@@ -70,8 +79,36 @@ def diagnostics(cfg):
     return d
 
 
+def _collect_local(cfg):
+    """Chay Python 32-bit + reader NGAY TREN MAY NAY (khong SSH).
+    Dung khi may vua chay WinCC vua co internet -> khong can bridge remote.
+    Config: [winccbox] mode = 'local', python32 = ..., reader = ..."""
+    w = cfg["winccbox"]
+    cmd = [w["python32"], w["reader"]]
+    last = ""
+    for _ in range(2):  # noi bo, retry 2 lan la du
+        try:
+            p = subprocess.run(cmd, capture_output=True, text=True, timeout=90,
+                               encoding="utf-8", errors="replace")
+            if p.returncode == 0 and p.stdout.strip():
+                try:
+                    return json.loads(p.stdout)
+                except json.JSONDecodeError:
+                    last = "JSON loi: " + p.stdout[:200]
+            else:
+                last = (p.stderr or p.stdout or "rong")[:200]
+        except subprocess.TimeoutExpired:
+            last = "reader timeout"
+        time.sleep(1)
+    raise RuntimeError(f"collect local that bai: {last}")
+
+
 def collect(cfg):
     w = cfg["winccbox"]
+    # Che do LOCAL: chay OLE-DB reader ngay tren may nay (khong SSH).
+    # Dung cho may co ca WinCC va internet.
+    if (w.get("mode") or "").lower() == "local":
+        return _collect_local(cfg)
     if w.get("key"):
         _secure_key(w["key"])  # tu khoa quyen key truoc khi ssh (OpenSSH kho tinh)
     ssh = ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=12",

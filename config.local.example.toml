@@ -3,13 +3,22 @@
 url = "https://n8n.svnagentic.site/webhook/<id>?user=1"
 
 [winccbox]
-# Ket noi TUONG MINH dell@IP + key (chac hon alias, khong phu thuoc ~/.ssh/config)
+# mode = "remote" (mac dinh): may nay SSH sang may WinCC offline
+# mode = "local" : may nay CHINH la may WinCC (chay reader tai cho, khong SSH)
+mode = "remote"
+
+# ==== Che do REMOTE (setup.bat) ====
 host = "169.254.172.61"
 user = "dell"
 key = "C:/Users/<bridgeuser>/.ssh/winccbox_ed25519"
 # (tuy chon) dung alias thay cho host/user: target = "winccbox"
-python32 = "C:/Users/dell/Python311x86/python.exe"
-reader = "C:/Users/dell/wincc-bridge/box/oledb_reader.py"
+
+# ==== Che do LOCAL (setup-local.bat) ====
+# Bo qua host/user/key. Chi can python32 + reader tro tro tren MAY NAY.
+# python32: Python 32-bit (bat buoc de pywin32 goi WinCCOLEDBProvider).
+# reader:   duong dan oledb_reader.py (trong repo checkout).
+python32 = "C:/Python311x86/python.exe"
+reader = "C:/Users/<user>/wincc-bridge/box/oledb_reader.py"
 
 [intervals]
 snapshot_sec = 300
