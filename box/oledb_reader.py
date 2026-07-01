@@ -52,44 +52,53 @@ def fmt(dt):
 
 
 def resolve_catalogs():
-    """Tra ve danh sach catalog ung vien (runtime DB ...R), moi nhat truoc, + fallback (neu co)."""
-    cats = []
-    for prov in ("MSOLEDBSQL", "SQLOLEDB"):
-        try:
-            _dbg(f"resolve_catalogs: thu provider {prov}")
-            c = win32com.client.Dispatch("ADODB.Connection")
-            c.ConnectionTimeout = CONN_TIMEOUT_SEC
-            c.CommandTimeout = CMD_TIMEOUT_SEC
-            c.ConnectionString = (f"Provider={prov};Data Source={DSN};Initial Catalog=master;"
-                                  f"Integrated Security=SSPI;TrustServerCertificate=yes")
-            c.Open()
-            _dbg(f"resolve_catalogs: {prov} Open OK")
-            rs = c.Execute(f"SELECT name FROM sys.databases WHERE name LIKE '{PROJECT_LIKE}' "
-                          f"ORDER BY create_date DESC")
-            while not rs.EOF:
-                n = str(rs.Fields(0).Value)
-                if n not in cats:
-                    cats.append(n)
-                rs.MoveNext()
-            c.Close()
-            _dbg(f"resolve_catalogs: found {len(cats)} catalog(s): {cats[:3]}")
-            if cats:
-                break
-        except Exception as e:
-            _dbg(f"resolve_catalogs: {prov} loi -> {str(e)[:120]}")
-            continue
-    # CHI append fallback neu co gia tri (khong empty)
+    """Tra ve (cats, errs) - danh sach catalog + list loi de bao cao qua JSON."""
+    cats, errs = [], []
+    # Thu nhieu DSN candidate: user tuy chon, ".\WINCC" (default WinCC 7.x),
+    # ".\SQLEXPRESS" (WinCC dung Express), "<hostname>\WINCC", "<hostname>\SQLEXPRESS"
+    host = _socket.gethostname()
+    dsn_cands = [DSN]
+    for extra in (r".\WINCC", r".\SQLEXPRESS", f"{host}\\WINCC", f"{host}\\SQLEXPRESS", host):
+        if extra not in dsn_cands:
+            dsn_cands.append(extra)
+    for dsn in dsn_cands:
+        for prov in ("MSOLEDBSQL", "SQLOLEDB"):
+            try:
+                _dbg(f"resolve_catalogs: DSN={dsn} provider={prov}")
+                c = win32com.client.Dispatch("ADODB.Connection")
+                c.ConnectionTimeout = CONN_TIMEOUT_SEC
+                c.CommandTimeout = CMD_TIMEOUT_SEC
+                c.ConnectionString = (f"Provider={prov};Data Source={dsn};Initial Catalog=master;"
+                                      f"Integrated Security=SSPI;TrustServerCertificate=yes")
+                c.Open()
+                rs = c.Execute(f"SELECT name FROM sys.databases WHERE name LIKE '{PROJECT_LIKE}' "
+                              f"ORDER BY create_date DESC")
+                while not rs.EOF:
+                    n = str(rs.Fields(0).Value)
+                    if n not in cats:
+                        cats.append(n)
+                    rs.MoveNext()
+                c.Close()
+                _dbg(f"resolve_catalogs: {dsn}/{prov} OK, catalogs={cats[:3]}")
+                if cats:
+                    return cats, errs, dsn  # tra ve DSN thanh cong cho connect() dung lai
+            except Exception as e:
+                errs.append(f"{dsn}/{prov}: {str(e)[:100]}")
+                _dbg(f"resolve_catalogs: {dsn}/{prov} loi -> {str(e)[:120]}")
+                continue
+    # Khong resolve duoc catalog nao - tra fallback (neu co config)
     if CATALOG_FALLBACK and CATALOG_FALLBACK not in cats:
         cats.append(CATALOG_FALLBACK)
-    return cats
+    return cats, errs, DSN
 
 
-def connect(catalog):
-    _dbg(f"connect: {catalog}")
+def connect(catalog, dsn=None):
+    dsn = dsn or DSN
+    _dbg(f"connect: catalog={catalog} DSN={dsn}")
     conn = win32com.client.Dispatch("ADODB.Connection")
     conn.ConnectionTimeout = CONN_TIMEOUT_SEC
     conn.CommandTimeout = CMD_TIMEOUT_SEC
-    conn.ConnectionString = f"Provider=WinCCOLEDBProvider.1;Catalog={catalog};Data Source={DSN}"
+    conn.ConnectionString = f"Provider=WinCCOLEDBProvider.1;Catalog={catalog};Data Source={dsn}"
     conn.CursorLocation = 3
     conn.Open()
     _dbg(f"connect: {catalog} Open OK")
@@ -130,20 +139,30 @@ def main():
     # Ket noi: thu lan luot cac catalog
     conn = None
     last_err = ""
+    resolve_errs = []
+    working_dsn = DSN
     try:
-        cands = resolve_catalogs()
+        cands, resolve_errs, working_dsn = resolve_catalogs()
     except Exception as e:
-        cands = [CATALOG_FALLBACK]
+        cands = [CATALOG_FALLBACK] if CATALOG_FALLBACK else []
         last_err = str(e)[:160]
+    connect_errs = []
     for c in cands:
         try:
-            conn = connect(c)
+            conn = connect(c, working_dsn)
             out["catalog"] = c
             break
         except Exception as e:
+            msg = f"{c}: {str(e)[:120]}"
+            connect_errs.append(msg)
             last_err = str(e)[:200]
     if conn is None:
-        out["error"] = "Khong ket noi duoc OLE-DB provider. Kiem tra WinCC Runtime co ACTIVE khong. " + last_err
+        out["error"] = "Khong ket noi duoc OLE-DB provider. Kiem tra WinCC Runtime co ACTIVE khong."
+        out["resolve_errs"] = resolve_errs[:6]     # loi tim catalog (DSN + provider)
+        out["connect_errs"] = connect_errs[:6]     # loi mo WinCCOLEDBProvider tren catalog
+        out["candidates"] = cands[:6]              # catalog thu ket noi
+        out["dsn_used"] = working_dsn              # DSN cuoi cung dung
+        out["hostname"] = _socket.gethostname()
         print(json.dumps(out, ensure_ascii=False, default=str))
         return
     beg = fmt(now - datetime.timedelta(minutes=WINDOW_MIN))
