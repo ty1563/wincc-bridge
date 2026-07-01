@@ -1,26 +1,79 @@
-# WinCC Bridge LOCAL installer - chay TREN CHINH MAY WinCC (co internet + WinCC).
+# WinCC Bridge LOCAL installer - chay TRUC TIEP tren may WinCC (co internet + WinCC).
 # Khong dung SSH: OLE-DB reader chay tai cho, service POST thang len n8n.
-# Yeu cau:
-#   - Windows PowerShell chay bang Administrator (dang ky Windows service)
-#   - Python 32-bit cai san (dua ra o buoc [4] - de goi WinCCOLEDBProvider)
+# TUONG THICH: Windows 7 SP1+ (PowerShell 2.0+), 8, 10, 11.
 $ErrorActionPreference = "Continue"
 $repo = Split-Path -Parent $PSScriptRoot
 $SVC = "WinCCBridge"
 $ProgressPreference = "SilentlyContinue"
-[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+
+# ---- TLS 1.2 (Win 7 mac dinh chi TLS 1.0 -> tai file HTTPS se loi) ----
+try {
+  $tls12 = [Net.SecurityProtocolType]::Tls12
+} catch {
+  $tls12 = 3072  # Tls12 const enum khi .NET cu chua co
+}
+try { [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor $tls12 } catch {}
 
 function Info($m) { Write-Host "==> $m" -ForegroundColor Cyan }
 function Ok($m)   { Write-Host "    $m" -ForegroundColor Green }
 function Warn($m) { Write-Host "    $m" -ForegroundColor Yellow }
+function Err($m)  { Write-Host "[LOI] $m" -ForegroundColor Red }
+
+# ============================================================
+# Helper: Download file (PS 2.0+ compat, khong dung Invoke-WebRequest)
+# ============================================================
+function Download-File($url, $out) {
+  try {
+    $wc = New-Object System.Net.WebClient
+    $wc.DownloadFile($url, $out)
+    return $true
+  } catch {
+    Warn "Tai $url -> loi: $_"
+    return $false
+  }
+}
+
+# ============================================================
+# Helper: Unzip (PS 2.0/3.0/4.0/5.0+ compat)
+#   1. Expand-Archive neu co (PS 5.0+)
+#   2. .NET ZipFile.ExtractToDirectory neu .NET 4.5+ san
+#   3. Shell.Application COM (Windows XP+ luon co)
+# ============================================================
+function Expand-Zip($zip, $dst) {
+  if (-not (Test-Path $dst)) { New-Item -ItemType Directory -Force $dst | Out-Null }
+  if (Get-Command Expand-Archive -ErrorAction SilentlyContinue) {
+    try { Expand-Archive -LiteralPath $zip -DestinationPath $dst -Force; return $true } catch { Warn "Expand-Archive loi: $_" }
+  }
+  try {
+    Add-Type -AssemblyName System.IO.Compression.FileSystem -ErrorAction Stop
+    [System.IO.Compression.ZipFile]::ExtractToDirectory($zip, $dst)
+    return $true
+  } catch { Warn ".NET ZipFile loi: $_ - thu Shell.Application" }
+  try {
+    $sh = New-Object -ComObject Shell.Application
+    $src = $sh.NameSpace((Resolve-Path $zip).Path)
+    $trg = $sh.NameSpace((Resolve-Path $dst).Path)
+    $trg.CopyHere($src.Items(), 20)  # 4=no progress + 16=yes to all
+    Start-Sleep 2
+    return $true
+  } catch { Err "Shell.Application loi: $_"; return $false }
+}
 
 Info "WinCC Bridge LOCAL setup | repo = $repo"
 
 # --- Admin check ---
 if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-  Write-Host "[LOI] Can chay bang quyen Administrator." -ForegroundColor Red
+  Err "Can chay bang quyen Administrator."
   Write-Host "      Chuot phai setup-local.bat -> 'Run as administrator' roi chay lai." -ForegroundColor Yellow
   Read-Host "Enter de thoat"
   exit 1
+}
+
+# --- PowerShell version check (canh bao neu PS 2.0) ---
+$psv = $PSVersionTable.PSVersion.Major
+Info "PowerShell version = $psv"
+if ($psv -lt 3) {
+  Warn "PS 2.0 cu - se dung .NET WebClient de tai file. Neu tai HTTPS loi -> cai WMF 5.1: https://aka.ms/wmf51"
 }
 
 # --- Don service cu (neu co) ---
@@ -33,39 +86,36 @@ if (Get-Service $SVC -ErrorAction SilentlyContinue) {
   Ok "da go service cu"
 }
 
-# ---------- 1) Python 3.11+ 64-bit (cho bridge service loop) ----------
+# ---------- 1) Python 3.11 64-bit (cho bridge service loop) ----------
 Info "[1/6] Python 64-bit (cho service loop)"
 $py = $null
-foreach ($c in @("$env:LOCALAPPDATA\Programs\Python\Python311\python.exe", "$env:USERPROFILE\Python311\python.exe")) {
+foreach ($c in @("$env:LOCALAPPDATA\Programs\Python\Python311\python.exe", "$env:USERPROFILE\Python311\python.exe", "C:\Python311\python.exe")) {
   if (Test-Path $c) { $py = $c; break }
 }
-if (-not $py) { $g = Get-Command python -ErrorAction SilentlyContinue; if ($g -and (& $g.Source -c "import sys;print(sys.version_info>=(3,11))") -eq "True") { $py = $g.Source } }
+if (-not $py) {
+  $g = Get-Command python -ErrorAction SilentlyContinue
+  if ($g) {
+    $v = & $g.Source -c "import sys;print(sys.version_info>=(3,9))"
+    if ($v -eq "True") { $py = $g.Source }
+  }
+}
 if (-not $py) {
   Warn "Cai Python 3.11.9 (per-user)..."
   $pyexe = "$env:TEMP\python-3.11.9-amd64.exe"
-  Invoke-WebRequest "https://www.python.org/ftp/python/3.11.9/python-3.11.9-amd64.exe" -OutFile $pyexe -UseBasicParsing
+  if (-not (Download-File "https://www.python.org/ftp/python/3.11.9/python-3.11.9-amd64.exe" $pyexe)) {
+    Err "Khong tai duoc Python installer. Cai tay tu https://www.python.org roi chay lai setup."
+    Read-Host "Enter de thoat"; exit 1
+  }
   Start-Process $pyexe -ArgumentList "/quiet","InstallAllUsers=0","PrependPath=1","Include_pip=1","Include_test=0","TargetDir=$env:USERPROFILE\Python311" -Wait
   $py = "$env:USERPROFILE\Python311\python.exe"
 }
-if (-not (Test-Path $py)) { Write-Host "[LOI] Khong cai duoc Python 3.11 - kiem tra mang/quyen" -ForegroundColor Red; Read-Host "Enter de thoat"; exit 1 }
+if (-not (Test-Path $py)) { Err "Khong cai duoc Python 3.11"; Read-Host "Enter de thoat"; exit 1 }
 Ok ("python = " + $py + " (" + (& $py --version) + ")")
 
 # ---------- 2) git (tuy chon - OTA co fallback HTTP-zip) ----------
-Info "[2/6] git (tuy chon)"
+Info "[2/6] git (tuy chon - neu khong co, OTA dung HTTP-zip)"
 $hasGit = [bool](Get-Command git -ErrorAction SilentlyContinue)
-if (-not $hasGit) {
-  try {
-    Warn "Thu cai Git for Windows..."
-    $rel = Invoke-RestMethod "https://api.github.com/repos/git-for-windows/git/releases/latest" -UseBasicParsing
-    $asset = $rel.assets | Where-Object { $_.name -match '64-bit\.exe$' } | Select-Object -First 1
-    $gitexe = "$env:TEMP\$($asset.name)"
-    Invoke-WebRequest $asset.browser_download_url -OutFile $gitexe -UseBasicParsing
-    Start-Process $gitexe -ArgumentList "/VERYSILENT","/NORESTART","/SP-" -Wait
-    $env:Path += ";$env:ProgramFiles\Git\cmd"
-    $hasGit = [bool](Get-Command git -ErrorAction SilentlyContinue)
-  } catch { Warn "Khong cai duoc git -> OTA dung HTTP-zip (van OK)" }
-}
-if ($hasGit) { Ok ("git = " + (git --version)) } else { Warn "Khong co git -> OTA dung HTTP-zip" }
+if ($hasGit) { Ok ("git = " + (git --version)) } else { Warn "Khong co git -> OTA dung HTTP-zip (van OK)" }
 
 # ---------- 3) nssm ----------
 Info "[3/6] nssm"
@@ -73,19 +123,23 @@ $nssm = "$repo\tools\nssm.exe"
 if (-not (Test-Path $nssm)) {
   New-Item -ItemType Directory -Force "$repo\tools" | Out-Null
   $z = "$env:TEMP\nssm.zip"
-  Invoke-WebRequest "https://nssm.cc/release/nssm-2.24.zip" -OutFile $z -UseBasicParsing
-  Expand-Archive $z "$env:TEMP\nssm" -Force
-  Copy-Item "$env:TEMP\nssm\nssm-2.24\win64\nssm.exe" $nssm -Force
+  if (-not (Download-File "https://nssm.cc/release/nssm-2.24.zip" $z)) {
+    Err "Khong tai duoc nssm.zip - kiem tra mang."
+    Read-Host "Enter de thoat"; exit 1
+  }
+  $nssmDir = "$env:TEMP\nssm"
+  if (Test-Path $nssmDir) { Remove-Item -Recurse -Force $nssmDir -ErrorAction SilentlyContinue }
+  if (-not (Expand-Zip $z $nssmDir)) { Err "Giai nen nssm loi"; Read-Host "Enter"; exit 1 }
+  Copy-Item "$nssmDir\nssm-2.24\win64\nssm.exe" $nssm -Force
 }
-if (-not (Test-Path $nssm)) { Write-Host "[LOI] Khong tai duoc nssm" -ForegroundColor Red; Read-Host "Enter de thoat"; exit 1 }
+if (-not (Test-Path $nssm)) { Err "nssm khong co"; Read-Host "Enter de thoat"; exit 1 }
 Ok "nssm = $nssm"
 
-# ---------- 4) Cau hinh (webhook + Python 32-bit + reader) ----------
+# ---------- 4) Cau hinh (webhook + Python 32-bit) ----------
 Info "[4/6] Cau hinh LOCAL"
 $defWebhook = "https://n8n.svnagentic.site/webhook/e54059c6-41f1-4854-be96-1d79f8d78797?user=1"
 $webhook = Read-Host "  n8n webhook URL (Enter = mac dinh)"; if (-not $webhook) { $webhook = $defWebhook }
 
-# Do tim Python 32-bit trong cac vi tri pho bien
 $py32 = $null
 foreach ($c in @(
   "C:\Python311x86\python.exe",
@@ -100,11 +154,11 @@ $py32Input = Read-Host "  Python 32-bit (Enter = $py32)"
 if ($py32Input) { $py32 = $py32Input }
 if (-not (Test-Path $py32)) {
   Warn "Chua thay Python 32-bit tai '$py32' - service se bao loi khi collect."
-  Warn "Cai tay: https://www.python.org/downloads/windows/ -> 'Windows installer (32-bit)' -> pip install pywin32"
+  Warn "Cai: https://www.python.org/downloads/windows/ -> 'Windows installer (32-bit)' 3.11 -> pip install pywin32"
 }
 $reader = "$repo\box\oledb_reader.py"
 
-# ---------- 5) Viet config.local.toml (mode = local) ----------
+# ---------- 5) Viet config.local.toml (mode=local, UTF-8 khong BOM) ----------
 Info "[5/6] config.local.toml (mode=local)"
 $cfgLocal = "$repo\config.local.toml"
 $cfgBody = @"
@@ -128,10 +182,10 @@ branch = "main"
 [System.IO.File]::WriteAllText($cfgLocal, $cfgBody, (New-Object System.Text.UTF8Encoding $false))
 Ok $cfgLocal
 
-# ---------- Git tracking (OTA) ----------
-Info "Git tracking (OTA)"
-$remote = "https://github.com/ty1563/wincc-bridge.git"
+# --- Git tracking (OTA) neu co git ---
 if ($hasGit) {
+  Info "Git tracking (OTA)"
+  $remote = "https://github.com/ty1563/wincc-bridge.git"
   if (-not (Test-Path "$repo\.git")) {
     git -C $repo init -q
     git -C $repo add -A
@@ -141,11 +195,10 @@ if ($hasGit) {
   git -C $repo fetch -q origin main
   git -C $repo reset --hard -q origin/main
   Ok "git tracking origin/main"
-} else { Warn "Khong co git -> OTA dung HTTP-zip" }
+}
 
 # ---------- 6) Dang ky NSSM service (auto-start, LocalSystem) ----------
 Info "[6/6] Dang ky service $SVC (auto-start)"
-$ErrorActionPreference = "Continue"
 New-Item -ItemType Directory -Force "$repo\logs" | Out-Null
 if (Get-Service $SVC -ErrorAction SilentlyContinue) {
   & $nssm stop $SVC 2>$null
