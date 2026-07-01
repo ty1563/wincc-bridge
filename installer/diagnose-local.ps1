@@ -97,23 +97,30 @@ foreach ($dsn in $dsnList) {
       $c.ConnectionString = "Provider=$prov;Data Source=$dsn;Initial Catalog=master;Integrated Security=SSPI;TrustServerCertificate=yes"
       $c.Open()
       W ("  [" + $prov + "] Open OK")
-      $rs = $c.Execute("SELECT name FROM sys.databases WHERE name NOT IN ('master','tempdb','model','msdb') ORDER BY create_date DESC")
+      # PS 2.0: Connection.Execute().Fields(0) loi -> dung Recordset.Open + Fields.Item(0)
+      $rs = New-Object -ComObject ADODB.Recordset
+      $rs.Open("SELECT name FROM sys.databases WHERE name NOT IN ('master','tempdb','model','msdb') ORDER BY create_date DESC", $c, 0, 1)
       $names = @()
-      while (-not $rs.EOF) { $names += $rs.Fields(0).Value; $rs.MoveNext() }
+      while (-not $rs.EOF) { $names += [string]$rs.Fields.Item(0).Value; $rs.MoveNext() }
+      $rs.Close()
       W ("    Total DB (loai system): " + $names.Count)
       # Nhom theo suffix de nhan biet Runtime/TagLogging/AlarmLogging/Backup
-      $rDbs = @($names | Where-Object { $_ -match "R$" -and $_ -notmatch "backup" })
+      $rDbs = @($names | Where-Object { $_ -match "R$" -and $_ -notmatch "_ALG_|_TLG_" })
       $tlgF = @($names | Where-Object { $_ -match "TLG_F|_TLG_?F_" })
       $tlgS = @($names | Where-Object { $_ -match "TLG_S|_TLG_?S_" })
       $alg  = @($names | Where-Object { $_ -match "_ALG_" })
-      if ($rDbs.Count) { W ("    Runtime DB (_R):   " + $rDbs.Count + " -> " + ($rDbs -join ', ')) }
-      else            { W ("    Runtime DB (_R):   0  <-- THIEU: Runtime DANG TAT!") }
-      if ($tlgF.Count) { W ("    TagLog Fast:       " + $tlgF.Count + " -> " + $tlgF[0]) }
-      else            { W ("    TagLog Fast:       0  <-- THIEU: khong archive tag values") }
-      if ($tlgS.Count) { W ("    TagLog Slow:       " + $tlgS.Count + " -> " + $tlgS[0]) }
+      $ccDb = @($names | Where-Object { $_ -match "^CC[_]" })
+      if ($rDbs.Count) { W ("    Runtime DB (*R):   " + $rDbs.Count + " -> " + ($rDbs -join ', ')) }
+      else            { W ("    Runtime DB (*R):   0  <-- THIEU") }
+      if ($tlgF.Count) { W ("    TagLog Fast:       " + $tlgF.Count + " -> " + ($tlgF -join ', ')) }
+      else            { W ("    TagLog Fast:       0  <-- THIEU: khong archive tag values!") }
+      if ($tlgS.Count) { W ("    TagLog Slow:       " + $tlgS.Count + " -> " + ($tlgS -join ', ')) }
+      else            { W ("    TagLog Slow:       0") }
+      if ($ccDb.Count) { W ("    CC_ config/RT DB:  " + $ccDb.Count + " -> " + ($ccDb -join ', ')) }
+      else            { W ("    CC_ config/RT DB:  0  <-- KHONG co project DB nao ten CC_*") }
       W ("    AlarmLog archive:  " + $alg.Count)
-      W ("    First 12 DBs:")
-      $names | Select-Object -First 12 | ForEach-Object { W ("      " + $_) }
+      W ("    === TAT CA " + $names.Count + " DB ===")
+      $names | ForEach-Object { W ("      " + $_) }
       $c.Close()
       $ok = $true
       break
@@ -198,6 +205,55 @@ if ($py32Found -and (Test-Path "$repo\box\oledb_reader.py")) {
     if (Test-Path $errF) { W (Get-Content $errF | Out-String).TrimEnd(); Remove-Item $errF -Force -ErrorAction SilentlyContinue }
   }
 } else { W ("Skip - py32=" + $py32Found + ", reader exists=" + (Test-Path "$repo\box\oledb_reader.py")) }
+
+# ============================================================
+# 14. WinCC project dang mo (command line cua process)
+# ============================================================
+Hdr "14. WinCC project dang mo"
+Try-Run {
+  $found = $false
+  foreach ($pname in @("WinCCExplorer.exe", "PdlRt.exe", "CCCwrun.exe", "CCAgent.exe")) {
+    $procs = Get-WmiObject Win32_Process -Filter ("Name='" + $pname + "'") -ErrorAction SilentlyContinue
+    foreach ($x in $procs) {
+      if ($x.CommandLine) { W ($pname + ": " + $x.CommandLine); $found = $true }
+    }
+  }
+  if (-not $found) { W "Khong lay duoc CommandLine (can Admin)" }
+}
+# .mcp files (project WinCC) - CHI quet cac thu muc pho bien (KHONG recurse toan o -> treo)
+Try-Run {
+  W ""
+  W "File .mcp o cac thu muc pho bien:"
+  $seen = $false
+  $projRoots = @("C:\", "D:\", "C:\Projects", "D:\Projects", "C:\WinCC_Projects", "D:\WinCC_Projects",
+                 "$env:PUBLIC\Documents", "$env:USERPROFILE\Documents")
+  foreach ($root in $projRoots) {
+    if (Test-Path $root) {
+      # Chi quet 2 cap dau (root + subfolder truc tiep), KHONG recurse sau -> nhanh
+      Get-ChildItem -Path $root -Filter "*.mcp" -ErrorAction SilentlyContinue |
+        ForEach-Object { W ("  " + $_.FullName + "  (sua: " + $_.LastWriteTime + ")"); $seen = $true }
+      Get-ChildItem -Path $root -ErrorAction SilentlyContinue | Where-Object { $_.PSIsContainer } | Select-Object -First 40 | ForEach-Object {
+        Get-ChildItem -Path $_.FullName -Filter "*.mcp" -ErrorAction SilentlyContinue |
+          ForEach-Object { W ("  " + $_.FullName + "  (sua: " + $_.LastWriteTime + ")"); $seen = $true }
+      }
+    }
+  }
+  if (-not $seen) { W "  (khong thay .mcp o thu muc pho bien - xem CommandLine o tren)" }
+}
+
+# ============================================================
+# 15. WinCC registry - project active + version
+# ============================================================
+Hdr "15. WinCC registry"
+foreach ($k in @(
+  "HKLM:\SOFTWARE\Wow6432Node\Siemens\WinCC\Setup",
+  "HKLM:\SOFTWARE\Siemens\WinCC\Setup"
+)) {
+  if (Test-Path $k) {
+    W ("[" + $k + "]")
+    Try-Run { W ((Get-ItemProperty $k | Select-Object * -ExcludeProperty PS* | Format-List | Out-String).Trim()) }
+  }
+}
 
 W ""
 W "=== KET THUC diagnose ==="
