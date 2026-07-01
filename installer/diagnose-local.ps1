@@ -1,6 +1,5 @@
-# WinCC Bridge LOCAL diagnose - quet toan bo may -> file log tren Desktop.
-# PS 2.0 compat (Win 7). KHONG can Administrator (query read-only), nhung Admin
-# se thay them SQL/service info.
+# WinCC Bridge LOCAL diagnose - quet toan bo may -> COPY VAO CLIPBOARD (khong tao file).
+# PS 2.0 compat (Win 7). Paste (Ctrl+V) vao chat de gui ho tro.
 
 $ErrorActionPreference = "Continue"
 
@@ -10,15 +9,13 @@ $scriptDir  = Split-Path -Parent $scriptPath
 $repo       = Split-Path -Parent $scriptDir
 if (-not (Test-Path "$repo\bridge")) { $repo = "$env:USERPROFILE\wincc-bridge" }
 
-$stamp = (Get-Date).ToString("yyyyMMdd-HHmmss")
-$log   = "$env:USERPROFILE\Desktop\wincc-diagnose-$stamp.txt"
-
-function W($m) { Add-Content -Path $log -Value $m -Encoding ASCII }
+# Gom output vao list roi copy 1 lan (khong ghi file txt).
+$script:OUT = New-Object System.Collections.ArrayList
+function W($m) { [void]$script:OUT.Add([string]$m) }
 function Hdr($t) { W ""; W ("================= " + $t + " ================="); }
 function Try-Run($block) { try { & $block } catch { W ("EXCEPTION: " + $_.ToString()) } }
 
-Write-Host "==> Diagnose bat dau, log -> $log" -ForegroundColor Cyan
-"" | Set-Content -Path $log -Encoding ASCII  # clear/create
+Write-Host "==> Diagnose bat dau, doi ~30s..." -ForegroundColor Cyan
 
 W "=== WinCC Bridge LOCAL diagnose ==="
 W ("Time    : " + (Get-Date).ToString("yyyy-MM-dd HH:mm:ss"))
@@ -105,21 +102,24 @@ foreach ($dsn in $dsnList) {
       while (-not $rs.EOF) { $names += $rs.Fields(0).Value; $rs.MoveNext() }
       W ("    Total DB (loai system): " + $names.Count)
       # Nhom theo suffix de nhan biet Runtime/TagLogging/AlarmLogging/Backup
-      $rDbs = $names | Where-Object { $_ -match "_R$|R$" -and $_ -notmatch "backup" }
-      $tlgF = $names | Where-Object { $_ -match "TLG_F|_TLG_?F_" }
-      $tlgS = $names | Where-Object { $_ -match "TLG_S|_TLG_?S_" }
-      $alg  = $names | Where-Object { $_ -match "_ALG_" }
-      W ("    Runtime DB (_R):   " + ($rDbs.Count) + (if ($rDbs.Count) { " -> " + ($rDbs -join ', ') } else { "  <-- THIEU: Runtime DANG TAT!" }))
-      W ("    TagLog Fast:       " + ($tlgF.Count) + (if ($tlgF.Count) { " -> " + ($tlgF[0]) } else { "  <-- THIEU: khong archive tag" }))
-      W ("    TagLog Slow:       " + ($tlgS.Count) + (if ($tlgS.Count) { " -> " + ($tlgS[0]) } else { "" }))
-      W ("    AlarmLog archive:  " + ($alg.Count))
-      W ("    First 10 DBs:")
-      $names | Select-Object -First 10 | ForEach-Object { W ("      " + $_) }
+      $rDbs = @($names | Where-Object { $_ -match "R$" -and $_ -notmatch "backup" })
+      $tlgF = @($names | Where-Object { $_ -match "TLG_F|_TLG_?F_" })
+      $tlgS = @($names | Where-Object { $_ -match "TLG_S|_TLG_?S_" })
+      $alg  = @($names | Where-Object { $_ -match "_ALG_" })
+      if ($rDbs.Count) { W ("    Runtime DB (_R):   " + $rDbs.Count + " -> " + ($rDbs -join ', ')) }
+      else            { W ("    Runtime DB (_R):   0  <-- THIEU: Runtime DANG TAT!") }
+      if ($tlgF.Count) { W ("    TagLog Fast:       " + $tlgF.Count + " -> " + $tlgF[0]) }
+      else            { W ("    TagLog Fast:       0  <-- THIEU: khong archive tag values") }
+      if ($tlgS.Count) { W ("    TagLog Slow:       " + $tlgS.Count + " -> " + $tlgS[0]) }
+      W ("    AlarmLog archive:  " + $alg.Count)
+      W ("    First 12 DBs:")
+      $names | Select-Object -First 12 | ForEach-Object { W ("      " + $_) }
       $c.Close()
       $ok = $true
       break
     } catch {
-      W ("  [" + $prov + "] FAIL: " + $_.Exception.Message.Substring(0, [Math]::Min(150, $_.Exception.Message.Length)))
+      $em = $_.Exception.Message
+      W ("  [" + $prov + "] FAIL: " + $em.Substring(0, [Math]::Min(150, $em.Length)))
     }
   }
   if (-not $ok) { W "  -> Instance KHONG toi duoc voi ca 2 provider" }
@@ -154,7 +154,6 @@ Try-Run {
   $svc = Get-Service WinCCBridge -ErrorAction SilentlyContinue
   if ($svc) {
     W ($svc | Format-List Name,Status,StartType,DisplayName | Out-String).Trim()
-    Try-Run { W ("Config: " + (sc.exe qc WinCCBridge | Out-String).Trim()) }
   } else { W "Service WinCCBridge KHONG co" }
 }
 
@@ -165,8 +164,6 @@ if (Test-Path $repo) {
     if (Test-Path "$repo\.git") {
       Push-Location $repo
       W ("git HEAD: " + (git rev-parse --short HEAD 2>&1))
-      W ("git log -3:")
-      W ((git log --oneline -3 2>&1 | Out-String).Trim())
       Pop-Location
     }
   }
@@ -177,9 +174,9 @@ if (Test-Path "$repo\config.local.toml") {
   W (Get-Content "$repo\config.local.toml" | Out-String).TrimEnd()
 } else { W "KHONG co config.local.toml" }
 
-Hdr "12. logs\service.log (30 dong cuoi)"
+Hdr "12. logs\service.log (25 dong cuoi)"
 if (Test-Path "$repo\logs\service.log") {
-  Try-Run { W ((Get-Content "$repo\logs\service.log" -Tail 30 | Out-String).TrimEnd()) }
+  Try-Run { W ((Get-Content "$repo\logs\service.log" -Tail 25 | Out-String).TrimEnd()) }
 } else { W "KHONG co service.log" }
 
 # ============================================================
@@ -190,24 +187,50 @@ if ($py32Found -and (Test-Path "$repo\box\oledb_reader.py")) {
   Try-Run {
     $env:WINCC_STATION_NAME = "diagnose-test"
     W "Chay reader (timeout 60s)..."
+    $outF = "$env:TEMP\wincc-reader-out.txt"
+    $errF = "$env:TEMP\wincc-reader-err.txt"
     $p = Start-Process -FilePath $py32Found -ArgumentList "`"$repo\box\oledb_reader.py`"" `
-         -NoNewWindow -PassThru -RedirectStandardOutput "$env:TEMP\reader-out.txt" `
-         -RedirectStandardError "$env:TEMP\reader-err.txt"
+         -NoNewWindow -PassThru -RedirectStandardOutput $outF -RedirectStandardError $errF
     if (-not $p.WaitForExit(60000)) { $p.Kill(); W "READER TIMEOUT (>60s)" }
     W "--- STDOUT ---"
-    if (Test-Path "$env:TEMP\reader-out.txt") { W (Get-Content "$env:TEMP\reader-out.txt" | Out-String).TrimEnd() }
+    if (Test-Path $outF) { W (Get-Content $outF | Out-String).TrimEnd(); Remove-Item $outF -Force -ErrorAction SilentlyContinue }
     W "--- STDERR ---"
-    if (Test-Path "$env:TEMP\reader-err.txt") { W (Get-Content "$env:TEMP\reader-err.txt" | Out-String).TrimEnd() }
+    if (Test-Path $errF) { W (Get-Content $errF | Out-String).TrimEnd(); Remove-Item $errF -Force -ErrorAction SilentlyContinue }
   }
 } else { W ("Skip - py32=" + $py32Found + ", reader exists=" + (Test-Path "$repo\box\oledb_reader.py")) }
 
-# ============================================================
-# Footer + open
-# ============================================================
 W ""
 W "=== KET THUC diagnose ==="
+
+# ============================================================
+# COPY VAO CLIPBOARD (khong tao file txt)
+# ============================================================
+$text = ($script:OUT -join "`r`n")
+$copied = $false
+# Cach 1: Set-Clipboard (PS 5.0+)
+if (Get-Command Set-Clipboard -ErrorAction SilentlyContinue) {
+  try { Set-Clipboard -Value $text; $copied = $true } catch {}
+}
+# Cach 2: clip.exe (Win 7+ luon co) - dung temp file de tranh truncate khi pipe
+if (-not $copied) {
+  try {
+    $tmp = "$env:TEMP\wincc-diag-clip.txt"
+    [System.IO.File]::WriteAllText($tmp, $text, (New-Object System.Text.UTF8Encoding $false))
+    cmd /c "clip < `"$tmp`""
+    Remove-Item $tmp -Force -ErrorAction SilentlyContinue
+    $copied = $true
+  } catch {}
+}
+
 Write-Host ""
-Write-Host "==> Log da luu: $log" -ForegroundColor Green
-Write-Host "==> Gui file nay cho ho tro de phan tich." -ForegroundColor Yellow
+if ($copied) {
+  Write-Host "==========================================================" -ForegroundColor Green
+  Write-Host "  DA COPY toan bo ket qua vao CLIPBOARD!" -ForegroundColor Green
+  Write-Host "  -> Paste (Ctrl+V) vao chat de gui ho tro." -ForegroundColor Green
+  Write-Host "==========================================================" -ForegroundColor Green
+} else {
+  Write-Host "Khong copy duoc clipboard - in ra man hinh, boi den chuot roi copy:" -ForegroundColor Yellow
+  Write-Host ""
+  Write-Host $text
+}
 Write-Host ""
-Start-Process notepad.exe $log
