@@ -89,7 +89,7 @@ def check_and_update(cfg, log=None):
     used_git = _git_update()
     if not used_git:
         try:
-            _http_update()
+            _http_update(log=_log)
         except Exception as e:
             _log(f"HTTP-zip update loi - {type(e).__name__}: {str(e)[:200]}")
             return False
@@ -117,22 +117,33 @@ def _git_update():
         return False
 
 
-def _http_update():
+def _http_update(log=None):
     with _urlopen(ZIP_URL, timeout=90) as r:
         data = r.read()
     z = zipfile.ZipFile(io.BytesIO(data))
     names = z.namelist()
     prefix = names[0].split("/")[0] + "/"   # vd "wincc-bridge-main/"
+    skipped = []
     for n in names:
         if n.endswith("/"):
             continue
         rel = n[len(prefix):]
         if not rel or rel in PROTECT or rel.split("/")[0] == ".git":
             continue
+        # tools/nssm.exe DANG chay (service wrapper) -> bi khoa, khong ghi de duoc.
+        # No hiem khi doi -> bo qua. Cac file .py van cap nhat binh thuong.
+        if rel.replace("\\", "/").lower() == "tools/nssm.exe":
+            continue
         dst = os.path.join(REPO_ROOT, rel.replace("/", os.sep))
-        os.makedirs(os.path.dirname(dst), exist_ok=True)
-        with z.open(n) as src, open(dst, "wb") as out:
-            shutil.copyfileobj(src, out)
+        try:
+            os.makedirs(os.path.dirname(dst), exist_ok=True)
+            with z.open(n) as src, open(dst, "wb") as out:
+                shutil.copyfileobj(src, out)
+        except (PermissionError, OSError) as e:
+            # File dang bi khoa (dang chay/mo) -> bo qua file do, KHONG chan ca update.
+            skipped.append(f"{rel} ({type(e).__name__})")
+    if skipped and log:
+        log(f"HTTP-zip: bo qua {len(skipped)} file bi khoa: {skipped[:5]}")
 
 
 def _remote_scp_dir(w):
