@@ -13,9 +13,13 @@ except Exception:
 
 import win32com.client
 
-DSN = r"MAINPC\WINCC"
-PROJECT_LIKE = "CC[_]Dakrosa1[_]%R"
-CATALOG_FALLBACK = "CC_Dakrosa1_23_10_10_10_26_33R"
+# Config qua ENV var (service truyen khi goi reader). Default = Dakrosa1 (tuong thich nguoc).
+# Tram khac: setup dat ENV WINCC_PROJECT_LIKE / WINCC_CATALOG_FALLBACK / WINCC_STATION_NAME.
+import os as _os
+DSN = _os.environ.get("WINCC_DSN") or r"MAINPC\WINCC"
+PROJECT_LIKE = _os.environ.get("WINCC_PROJECT_LIKE") or "CC[_]Dakrosa1[_]%R"
+CATALOG_FALLBACK = _os.environ.get("WINCC_CATALOG_FALLBACK") or "CC_Dakrosa1_23_10_10_10_26_33R"
+STATION_NAME = _os.environ.get("WINCC_STATION_NAME") or "Dakrosa1"
 WINDOW_MIN = 5
 
 MAP = {
@@ -96,7 +100,7 @@ def read_stats(conn, vid, beg, end):
 def main():
     now = datetime.datetime.utcnow()
     out = {"snapshot_utc": now.replace(microsecond=0).isoformat() + "Z",
-           "window_min": WINDOW_MIN, "tags": {}}
+           "window_min": WINDOW_MIN, "station": STATION_NAME, "tags": {}}
     # Ket noi: thu lan luot cac catalog
     conn = None
     last_err = ""

@@ -44,6 +44,9 @@ def one_snapshot(cfg, ping=None):
         log(f"  hint: {hint(str(e))}")
         snap = {"error": str(e)[:300], "tags": {}}
     payload = {"source": "wincc-bridge", "version": collect.local_version()}
+    st = cfg.get("station", {}).get("name")
+    if st:
+        payload["station"] = st  # de n8n biet snapshot cua tram nao (Dakrosa1 vs Dakrosa2 vs ...)
     if ping:
         payload["ping"] = ping
     payload.update(snap)

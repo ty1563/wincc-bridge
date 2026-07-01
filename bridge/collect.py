@@ -79,16 +79,30 @@ def diagnostics(cfg):
     return d
 
 
+def _station_env(cfg):
+    """Truyen cau hinh tram sang reader qua ENV var (khong dung CLI arg de tuong thich cu).
+    [station] name / project_like / catalog_fallback / dsn -> WINCC_* env cho reader."""
+    env = os.environ.copy()
+    s = cfg.get("station", {})
+    if s.get("name"):             env["WINCC_STATION_NAME"] = str(s["name"])
+    if s.get("project_like"):     env["WINCC_PROJECT_LIKE"] = str(s["project_like"])
+    if s.get("catalog_fallback"): env["WINCC_CATALOG_FALLBACK"] = str(s["catalog_fallback"])
+    if s.get("dsn"):              env["WINCC_DSN"] = str(s["dsn"])
+    return env
+
+
 def _collect_local(cfg):
     """Chay Python 32-bit + reader NGAY TREN MAY NAY (khong SSH).
     Dung khi may vua chay WinCC vua co internet -> khong can bridge remote.
     Config: [winccbox] mode = 'local', python32 = ..., reader = ..."""
     w = cfg["winccbox"]
     cmd = [w["python32"], w["reader"]]
+    env = _station_env(cfg)
     last = ""
     for _ in range(2):  # noi bo, retry 2 lan la du
         try:
             p = subprocess.run(cmd, capture_output=True, text=True, timeout=90,
+                               env=env,
                                encoding="utf-8", errors="replace")
             if p.returncode == 0 and p.stdout.strip():
                 try:

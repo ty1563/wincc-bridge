@@ -2,6 +2,15 @@
 [webhook]
 url = "https://n8n.svnagentic.site/webhook/<id>?user=1"
 
+[station]
+# Tram nay ten gi -> n8n biet phan biet payload cua may nao gui.
+# Neu KHONG dat, reader mac dinh "Dakrosa1" (tuong thich nguoc).
+name = "Dakrosa1"
+# WinCC catalog pattern (SQL LIKE): CC[_]<ten>[_]%R (dau _ trong ngoac de escape)
+project_like = "CC[_]Dakrosa1[_]%R"
+# Catalog fallback neu resolve khong ra. Bo trong = reader tu tim.
+catalog_fallback = ""
+
 [winccbox]
 # mode = "remote" (mac dinh): may nay SSH sang may WinCC offline
 # mode = "local" : may nay CHINH la may WinCC (chay reader tai cho, khong SSH)

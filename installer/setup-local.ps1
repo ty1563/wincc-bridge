@@ -140,6 +140,14 @@ Info "[4/6] Cau hinh LOCAL"
 $defWebhook = "https://n8n.svnagentic.site/webhook/e54059c6-41f1-4854-be96-1d79f8d78797?user=1"
 $webhook = Read-Host "  n8n webhook URL (Enter = mac dinh)"; if (-not $webhook) { $webhook = $defWebhook }
 
+# --- Tram (station) ---
+# Ten tram giup n8n phan biet Dakrosa1 / Dakrosa2 / ... Payload luon co field 'station'.
+$stationName = Read-Host "  Ten tram (Enter = Dakrosa1)"; if (-not $stationName) { $stationName = "Dakrosa1" }
+# PROJECT_LIKE mac dinh suy tu ten tram: LIKE 'CC[_]<ten>[_]%R'
+$defProjLike = "CC[_]$stationName[_]%R"
+$projLike = Read-Host "  WinCC project pattern (Enter = $defProjLike)"; if (-not $projLike) { $projLike = $defProjLike }
+$catFallback = Read-Host "  Catalog fallback (Enter = de trong, reader tu do)"; if (-not $catFallback) { $catFallback = "" }
+
 $py32 = $null
 foreach ($c in @(
   "C:\Python311x86\python.exe",
@@ -164,6 +172,11 @@ $cfgLocal = "$repo\config.local.toml"
 $cfgBody = @"
 [webhook]
 url = "$webhook"
+
+[station]
+name = "$stationName"
+project_like = "$projLike"
+catalog_fallback = "$catFallback"
 
 [winccbox]
 mode = "local"
