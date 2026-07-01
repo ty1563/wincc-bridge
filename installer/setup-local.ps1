@@ -1,8 +1,11 @@
 # WinCC Bridge LOCAL installer - chay TRUC TIEP tren may WinCC (Win 7/8/10/11).
 # Yeu cau CAI TRUOC (PowerShell 2.0/Win 7 khong tai duoc HTTPS moi):
-#   1) Python 3.11 x64  (https://www.python.org/downloads/release/python-3119/)
-#   2) Python 3.11 x86  + `pip install pywin32`  (goi WinCCOLEDBProvider - COM 32-bit)
+#   1) Python 3.7+ x64  (Win 7 dung 3.7.9 - Python cuoi cung ho tro Win 7 chinh thuc)
+#   2) Python 3.7+ x86  + `pip install pywin32`  (goi WinCCOLEDBProvider - COM 32-bit)
+#      Tai: https://www.python.org/ftp/python/3.7.9/python-3.7.9.exe        (32-bit)
+#           https://www.python.org/ftp/python/3.7.9/python-3.7.9-amd64.exe  (64-bit)
 # nssm.exe da BUNDLED trong repo -> khong can tai.
+# Config parser co fallback mini-TOML cho Python 3.7-3.10 (tomllib chi co tu 3.11).
 $ErrorActionPreference = "Continue"
 $ProgressPreference = "SilentlyContinue"
 
@@ -45,31 +48,37 @@ if (Get-Service $SVC -ErrorAction SilentlyContinue) {
 }
 
 # ---------- 1) Python 64-bit (bat buoc cai truoc) ----------
-Info "[1/5] Kiem tra Python 3.9+ 64-bit (cho service loop)"
+Info "[1/5] Kiem tra Python 3.7+ 64-bit (cho service loop)"
 $py = $null
 $cands = @(
   "$env:LOCALAPPDATA\Programs\Python\Python312\python.exe",
   "$env:LOCALAPPDATA\Programs\Python\Python311\python.exe",
   "$env:LOCALAPPDATA\Programs\Python\Python310\python.exe",
   "$env:LOCALAPPDATA\Programs\Python\Python39\python.exe",
+  "$env:LOCALAPPDATA\Programs\Python\Python38\python.exe",
+  "$env:LOCALAPPDATA\Programs\Python\Python37\python.exe",
   "$env:USERPROFILE\Python311\python.exe",
+  "$env:USERPROFILE\Python37\python.exe",
   "C:\Python311\python.exe",
   "C:\Python310\python.exe",
-  "C:\Python39\python.exe"
+  "C:\Python39\python.exe",
+  "C:\Python38\python.exe",
+  "C:\Python37\python.exe"
 )
 foreach ($c in $cands) { if (Test-Path $c) { $py = $c; break } }
 if (-not $py) {
   $g = Get-Command python -ErrorAction SilentlyContinue
   if ($g) {
-    $ok = & $g.Source -c "import sys;print(sys.version_info>=(3,9))"
+    $ok = & $g.Source -c "import sys;print(sys.version_info>=(3,7))"
     if ($ok -eq "True") { $py = $g.Source }
   }
 }
 if (-not $py) {
-  Err "KHONG THAY Python 3.9+ 64-bit."
+  Err "KHONG THAY Python 3.7+ 64-bit."
   Write-Host ""
-  Write-Host "  Cach cai (tren may co internet, roi copy sang):" -ForegroundColor Yellow
-  Write-Host "    1. Tai: https://www.python.org/ftp/python/3.11.9/python-3.11.9-amd64.exe" -ForegroundColor Yellow
+  Write-Host "  Cach cai tren Win 7 (tren may co internet, roi copy sang):" -ForegroundColor Yellow
+  Write-Host "    1. Tai: https://www.python.org/ftp/python/3.7.9/python-3.7.9-amd64.exe" -ForegroundColor Yellow
+  Write-Host "       (3.7.9 la Python cuoi cung ho tro Win 7 chinh thuc)" -ForegroundColor Yellow
   Write-Host "    2. Copy sang may nay, chay installer, TICH 'Add Python to PATH'" -ForegroundColor Yellow
   Write-Host "    3. Chay lai setup-local.bat" -ForegroundColor Yellow
   Read-Host "Enter de thoat"
@@ -106,23 +115,29 @@ if (-not $projLike) { $projLike = $defProjLike }
 $catFallback = Read-Host "  Catalog fallback (Enter = de trong, reader tu do)"
 if (-not $catFallback) { $catFallback = "" }
 
-# Python 32-bit
+# Python 32-bit (Win 7: dung 3.7.9 x86)
 $py32 = $null
 $cands32 = @(
-  "C:\Python311x86\python.exe",
-  "C:\Python310x86\python.exe",
+  "C:\Python37x86\python.exe",
+  "C:\Python38x86\python.exe",
   "C:\Python39x86\python.exe",
-  "$env:LOCALAPPDATA\Programs\Python\Python311-32\python.exe",
+  "C:\Python310x86\python.exe",
+  "C:\Python311x86\python.exe",
+  "$env:LOCALAPPDATA\Programs\Python\Python37-32\python.exe",
+  "$env:LOCALAPPDATA\Programs\Python\Python38-32\python.exe",
+  "$env:LOCALAPPDATA\Programs\Python\Python39-32\python.exe",
   "$env:LOCALAPPDATA\Programs\Python\Python310-32\python.exe",
+  "$env:LOCALAPPDATA\Programs\Python\Python311-32\python.exe",
+  "$env:USERPROFILE\Python37x86\python.exe",
   "$env:USERPROFILE\Python311x86\python.exe"
 )
 foreach ($c in $cands32) { if (Test-Path $c) { $py32 = $c; break } }
-if (-not $py32) { $py32 = "C:\Python311x86\python.exe" }
+if (-not $py32) { $py32 = "C:\Python37x86\python.exe" }
 $py32Input = Read-Host "  Python 32-bit (Enter = $py32)"
 if ($py32Input) { $py32 = $py32Input }
 if (-not (Test-Path $py32)) {
   Warn "CHUA thay Python 32-bit tai '$py32' - service se bao loi khi collect."
-  Warn "  Tai: https://www.python.org/ftp/python/3.11.9/python-3.11.9.exe  (32-bit)"
+  Warn "  Win 7: tai https://www.python.org/ftp/python/3.7.9/python-3.7.9.exe  (32-bit)"
   Warn "  Sau khi cai: '$py32 -m pip install pywin32'"
 }
 $reader = "$repo\box\oledb_reader.py"
