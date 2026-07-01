@@ -29,6 +29,27 @@ key = "C:/Users/<bridgeuser>/.ssh/winccbox_ed25519"
 python32 = "C:/Python311x86/python.exe"
 reader = "C:/Users/<user>/wincc-bridge/box/oledb_reader.py"
 
+# [tags] = ban do ValueID cua tram (ten_tag = ValueID). BO QUA de dung MAP mac
+# dinh Dakrosa1 (ValueID 1-43). Tram khac co ValueID rieng -> khai bao o day.
+# Lay ValueID that: chay tren may WinCC:
+#   SELECT ValueID, ValueName FROM [<archive_db>].dbo.Archive
+# Giu ten chuan bus_P/u1_P/u2_P/u3_P de tinh energy_5min + dashboard khong doi.
+# Vi du Dakrosa2 (bo comment neu dung):
+# [tags]
+# bus_P = 2324
+# bus_Q = 2304
+# bus_PF = 2344
+# bus_F = 2234
+# u1_P = 58
+# u1_Q = 61
+# u1_speed = 994
+# u2_P = 326
+# u2_Q = 329
+# u2_speed = 1404
+# u3_P = 393
+# u3_Q = 396
+# u3_speed = 1624
+
 [intervals]
 snapshot_sec = 300
 ota_sec = 900

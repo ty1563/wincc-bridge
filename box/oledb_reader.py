@@ -44,7 +44,10 @@ def _dbg(msg):
     """Print tien trinh ra stderr - stdout danh cho JSON output."""
     print(f"[dbg] {msg}", file=_sys.stderr, flush=True)
 
-MAP = {
+# MAP mac dinh = Dakrosa1 (ValueID -> ten tag). Tram khac (vd Dakrosa2) co
+# ValueID hoan toan khac -> nap tu ENV WINCC_TAG_MAP (JSON {ten: valueid}) do
+# service truyen tu [tags] trong config.local.toml. KHONG doi code cho tram moi.
+DEFAULT_MAP = {
     1: "bus_U1N", 2: "bus_U2N", 3: "bus_U3N", 4: "bus_U12", 5: "bus_U23",
     6: "bus_U31", 7: "bus_I1", 8: "bus_I2", 9: "bus_I3", 10: "bus_P",
     11: "bus_Q", 12: "bus_F", 13: "bus_PF",
@@ -52,6 +55,16 @@ MAP = {
     18: "u2_U12", 19: "u2_I1", 20: "u2_P", 21: "u2_Q", 31: "u2_GV", 35: "u2_speed",
     22: "u3_U12", 23: "u3_I1", 24: "u3_P", 25: "u3_Q", 39: "u3_GV", 43: "u3_speed",
 }
+_tagmap_env = _os.environ.get("WINCC_TAG_MAP")
+if _tagmap_env:
+    try:
+        _m = json.loads(_tagmap_env)          # {ten: valueid} tu config [tags]
+        MAP = {int(v): str(k) for k, v in _m.items()}
+    except Exception as _e:
+        _dbg(f"WINCC_TAG_MAP loi parse ({_e}) -> dung DEFAULT_MAP")
+        MAP = dict(DEFAULT_MAP)
+else:
+    MAP = dict(DEFAULT_MAP)
 
 
 def fmt(dt):
