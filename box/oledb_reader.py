@@ -27,9 +27,12 @@ import socket as _socket
 # config.local.toml -> khong dung fallback nay, khong bi anh huong.
 DSN = _os.environ.get("WINCC_DSN") or r"MAINPC\WINCC"
 PROJECT_LIKE = _os.environ.get("WINCC_PROJECT_LIKE") or "CC[_]Dakrosa1[_]%R"
-# Fix: ENV="" (user de trong trong config) van coi la "khong co fallback".
+# QUAN TRONG: default PHAI la fallback goc cua Dakrosa1 (KHONG doi thanh "").
+# Cung ly do nhu DSN o tren: SSH remote mode (Dakrosa1) khong forward env var,
+# nen luon roi vao nhanh default nay. Tung doi thanh "" (v1.3.3) lam mat luoi
+# an toan cuoi cung khi LIKE-match khong ra ket qua tren Dakrosa1 - da revert.
 _cfb_env = _os.environ.get("WINCC_CATALOG_FALLBACK")
-CATALOG_FALLBACK = _cfb_env if _cfb_env else ""
+CATALOG_FALLBACK = _cfb_env if _cfb_env else "CC_Dakrosa1_23_10_10_10_26_33R"
 STATION_NAME = _os.environ.get("WINCC_STATION_NAME") or "Dakrosa1"
 WINDOW_MIN = 5
 # Timeout de reader khong treo mai (ADODB mac dinh khong timeout khi Open/Execute).
