@@ -18,10 +18,14 @@ import win32com.client
 import os as _os
 import sys as _sys
 import socket as _socket
-# DSN mac dinh = .\WINCC (SQL Server local instance) - hoat dong tren MOI may
-# co WinCC cai san, khong phu thuoc hostname. Truoc day hardcode 'MAINPC\WINCC'
-# nen may khac tram (vd DAKROSA2-PC) treo vi resolve host MAINPC that bai.
-DSN = _os.environ.get("WINCC_DSN") or r".\WINCC"
+# QUAN TRONG: default PHAI la 'MAINPC\WINCC' (KHONG doi) - day la gia tri da
+# chay on dinh tren box Dakrosa1 (remote/SSH mode) tu dau. File nay duoc OTA
+# day sang CA box Dakrosa1 (qua _sync_box trong updater.py), va SSH KHONG
+# forward env var WINCC_DSN tu may DELL sang box -> box luon dung fallback nay.
+# Tung doi thanh '.\WINCC' (v1.3.3) lam Dakrosa1 mat ket noi - da revert.
+# Tram khac (vd Dakrosa2, mode=local) TU dat WINCC_DSN qua [station].dsn trong
+# config.local.toml -> khong dung fallback nay, khong bi anh huong.
+DSN = _os.environ.get("WINCC_DSN") or r"MAINPC\WINCC"
 PROJECT_LIKE = _os.environ.get("WINCC_PROJECT_LIKE") or "CC[_]Dakrosa1[_]%R"
 # Fix: ENV="" (user de trong trong config) van coi la "khong co fallback".
 _cfb_env = _os.environ.get("WINCC_CATALOG_FALLBACK")
