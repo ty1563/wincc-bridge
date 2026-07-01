@@ -114,6 +114,10 @@ $projLike = Read-Host "  WinCC project pattern (Enter = $defProjLike)"
 if (-not $projLike) { $projLike = $defProjLike }
 $catFallback = Read-Host "  Catalog fallback (Enter = de trong, reader tu do)"
 if (-not $catFallback) { $catFallback = "" }
+# DSN = SQL Server instance cua WinCC. Mac dinh .\WINCC (local instance) - dung
+# cho MOI may WinCC. Neu WinCC dung ten instance khac, sua o day.
+$dsn = Read-Host "  SQL Server DSN (Enter = .\WINCC)"
+if (-not $dsn) { $dsn = ".\WINCC" }
 
 # Python 32-bit (Win 7: dung 3.7.9 x86)
 $py32 = $null
@@ -153,6 +157,7 @@ url = "$webhook"
 name = "$stationName"
 project_like = "$projLike"
 catalog_fallback = "$catFallback"
+dsn = "$($dsn -replace '\\','\\')"
 
 [winccbox]
 mode = "local"

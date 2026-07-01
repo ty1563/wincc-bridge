@@ -16,11 +16,26 @@ import win32com.client
 # Config qua ENV var (service truyen khi goi reader). Default = Dakrosa1 (tuong thich nguoc).
 # Tram khac: setup dat ENV WINCC_PROJECT_LIKE / WINCC_CATALOG_FALLBACK / WINCC_STATION_NAME.
 import os as _os
-DSN = _os.environ.get("WINCC_DSN") or r"MAINPC\WINCC"
+import sys as _sys
+import socket as _socket
+# DSN mac dinh = .\WINCC (SQL Server local instance) - hoat dong tren MOI may
+# co WinCC cai san, khong phu thuoc hostname. Truoc day hardcode 'MAINPC\WINCC'
+# nen may khac tram (vd DAKROSA2-PC) treo vi resolve host MAINPC that bai.
+DSN = _os.environ.get("WINCC_DSN") or r".\WINCC"
 PROJECT_LIKE = _os.environ.get("WINCC_PROJECT_LIKE") or "CC[_]Dakrosa1[_]%R"
-CATALOG_FALLBACK = _os.environ.get("WINCC_CATALOG_FALLBACK") or "CC_Dakrosa1_23_10_10_10_26_33R"
+# Fix: ENV="" (user de trong trong config) van coi la "khong co fallback".
+_cfb_env = _os.environ.get("WINCC_CATALOG_FALLBACK")
+CATALOG_FALLBACK = _cfb_env if _cfb_env else ""
 STATION_NAME = _os.environ.get("WINCC_STATION_NAME") or "Dakrosa1"
 WINDOW_MIN = 5
+# Timeout de reader khong treo mai (ADODB mac dinh khong timeout khi Open/Execute).
+CONN_TIMEOUT_SEC = 5
+CMD_TIMEOUT_SEC = 15
+
+
+def _dbg(msg):
+    """Print tien trinh ra stderr - stdout danh cho JSON output."""
+    print(f"[dbg] {msg}", file=_sys.stderr, flush=True)
 
 MAP = {
     1: "bus_U1N", 2: "bus_U2N", 3: "bus_U3N", 4: "bus_U12", 5: "bus_U23",
@@ -37,14 +52,18 @@ def fmt(dt):
 
 
 def resolve_catalogs():
-    """Tra ve danh sach catalog ung vien (runtime DB ...R), moi nhat truoc, + fallback."""
+    """Tra ve danh sach catalog ung vien (runtime DB ...R), moi nhat truoc, + fallback (neu co)."""
     cats = []
     for prov in ("MSOLEDBSQL", "SQLOLEDB"):
         try:
+            _dbg(f"resolve_catalogs: thu provider {prov}")
             c = win32com.client.Dispatch("ADODB.Connection")
+            c.ConnectionTimeout = CONN_TIMEOUT_SEC
+            c.CommandTimeout = CMD_TIMEOUT_SEC
             c.ConnectionString = (f"Provider={prov};Data Source={DSN};Initial Catalog=master;"
                                   f"Integrated Security=SSPI;TrustServerCertificate=yes")
             c.Open()
+            _dbg(f"resolve_catalogs: {prov} Open OK")
             rs = c.Execute(f"SELECT name FROM sys.databases WHERE name LIKE '{PROJECT_LIKE}' "
                           f"ORDER BY create_date DESC")
             while not rs.EOF:
@@ -53,20 +72,27 @@ def resolve_catalogs():
                     cats.append(n)
                 rs.MoveNext()
             c.Close()
+            _dbg(f"resolve_catalogs: found {len(cats)} catalog(s): {cats[:3]}")
             if cats:
                 break
-        except Exception:
+        except Exception as e:
+            _dbg(f"resolve_catalogs: {prov} loi -> {str(e)[:120]}")
             continue
-    if CATALOG_FALLBACK not in cats:
+    # CHI append fallback neu co gia tri (khong empty)
+    if CATALOG_FALLBACK and CATALOG_FALLBACK not in cats:
         cats.append(CATALOG_FALLBACK)
     return cats
 
 
 def connect(catalog):
+    _dbg(f"connect: {catalog}")
     conn = win32com.client.Dispatch("ADODB.Connection")
+    conn.ConnectionTimeout = CONN_TIMEOUT_SEC
+    conn.CommandTimeout = CMD_TIMEOUT_SEC
     conn.ConnectionString = f"Provider=WinCCOLEDBProvider.1;Catalog={catalog};Data Source={DSN}"
     conn.CursorLocation = 3
     conn.Open()
+    _dbg(f"connect: {catalog} Open OK")
     return conn
 
 
