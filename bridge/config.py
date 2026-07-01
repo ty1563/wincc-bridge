@@ -37,7 +37,15 @@ def _mini_toml_loads(text):
         k = k.strip()
         v = v.strip()
         # Value: string / bool / int / float / string tho
-        if len(v) >= 2 and ((v[0] == '"' and v[-1] == '"') or (v[0] == "'" and v[-1] == "'")):
+        if len(v) >= 2 and v[0] == '"' and v[-1] == '"':
+            # TOML basic string: xu ly escape sequences (giong tomllib)
+            v = v[1:-1]
+            v = (v.replace("\\\\", "\x00")
+                 .replace('\\"', '"').replace("\\n", "\n")
+                 .replace("\\r", "\r").replace("\\t", "\t")
+                 .replace("\x00", "\\"))
+        elif len(v) >= 2 and v[0] == "'" and v[-1] == "'":
+            # TOML literal string: khong xu ly escape (raw)
             v = v[1:-1]
         elif v.lower() == "true":
             v = True

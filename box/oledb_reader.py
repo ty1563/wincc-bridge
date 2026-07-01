@@ -73,6 +73,9 @@ def resolve_catalogs():
                 c.Open()
                 rs = c.Execute(f"SELECT name FROM sys.databases WHERE name LIKE '{PROJECT_LIKE}' "
                               f"ORDER BY create_date DESC")
+                # pywin32 3.7 co the tra ve (Recordset, RecordsAffected) tuple thay vi Recordset
+                if isinstance(rs, tuple):
+                    rs = rs[0]
                 while not rs.EOF:
                     n = str(rs.Fields(0).Value)
                     if n not in cats:
@@ -107,7 +110,10 @@ def connect(catalog, dsn=None):
 
 def read_stats(conn, vid, beg, end):
     rs = win32com.client.Dispatch("ADODB.Recordset")
-    rs.Open(f"TAG:R,{vid},'{beg}','{end}'", conn, 3, 1)
+    ret = rs.Open(f"TAG:R,{vid},'{beg}','{end}'", conn, 3, 1)
+    # An toan cho pywin32 3.7 (tra tuple)
+    if isinstance(ret, tuple) and ret and hasattr(ret[0], "EOF"):
+        rs = ret[0]
     cnt = rs.RecordCount
     if not cnt or cnt <= 0:
         rs.Close()
