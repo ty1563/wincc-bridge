@@ -6,10 +6,12 @@ Khong can gh, khong can token (repo public), git la tuy chon.
 """
 import os
 import io
+import ssl
 import shutil
 import zipfile
 import subprocess
 import urllib.request
+import urllib.error
 
 from bridge.config import REPO_ROOT
 
@@ -18,6 +20,37 @@ BRANCH = "main"
 RAW_VERSION = f"https://raw.githubusercontent.com/{OWNER_REPO}/{BRANCH}/version.txt"
 ZIP_URL = f"https://github.com/{OWNER_REPO}/archive/refs/heads/{BRANCH}.zip"
 PROTECT = {"config.local.toml"}
+CACERT = os.path.join(REPO_ROOT, "bridge", "cacert.pem")
+
+
+def _ssl_ctx():
+    """Win7/Py3.7 thieu Root CA moi trong OS store -> CERTIFICATE_VERIFY_FAILED.
+    Uu tien CA bundle DONG GOI trong repo (bridge/cacert.pem), roi certifi, roi OS."""
+    if os.path.exists(CACERT):
+        try:
+            return ssl.create_default_context(cafile=CACERT)
+        except Exception:
+            pass
+    try:
+        import certifi
+        return ssl.create_default_context(cafile=certifi.where())
+    except Exception:
+        pass
+    return ssl.create_default_context()
+
+
+def _urlopen(url, timeout=30):
+    """urlopen co xac minh cert (CA bundle bundled). Neu VAN loi cert (OS/CA qua
+    cu, khong the verify) -> fallback UNVERIFIED (repo public, LAN noi bo). Log ro."""
+    try:
+        return urllib.request.urlopen(url, timeout=timeout, context=_ssl_ctx())
+    except urllib.error.URLError as e:
+        if "CERTIFICATE" in str(e).upper() or isinstance(getattr(e, "reason", None), ssl.SSLError):
+            unv = ssl.create_default_context()
+            unv.check_hostname = False
+            unv.verify_mode = ssl.CERT_NONE
+            return urllib.request.urlopen(url, timeout=timeout, context=unv)
+        raise
 
 
 def _local_version():
@@ -30,7 +63,7 @@ def _local_version():
 
 
 def _remote_version():
-    with urllib.request.urlopen(RAW_VERSION, timeout=20) as r:
+    with _urlopen(RAW_VERSION, timeout=20) as r:
         return r.read().decode("utf-8", "replace").strip()
 
 
@@ -85,7 +118,7 @@ def _git_update():
 
 
 def _http_update():
-    with urllib.request.urlopen(ZIP_URL, timeout=90) as r:
+    with _urlopen(ZIP_URL, timeout=90) as r:
         data = r.read()
     z = zipfile.ZipFile(io.BytesIO(data))
     names = z.namelist()
