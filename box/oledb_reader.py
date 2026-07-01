@@ -51,11 +51,26 @@ def fmt(dt):
     return dt.strftime("%Y-%m-%d %H:%M:%S.000")
 
 
+def _query_all_dbs(conn, prov):
+    """Liet ke TAT CA database (khong loc pattern) - de user thay ten thuc te."""
+    try:
+        rs = conn.Execute("SELECT name FROM sys.databases WHERE name NOT IN "
+                          "('master','tempdb','model','msdb') ORDER BY create_date DESC")
+        if isinstance(rs, tuple):
+            rs = rs[0]
+        names = []
+        while not rs.EOF and len(names) < 20:
+            names.append(str(rs.Fields(0).Value))
+            rs.MoveNext()
+        return names
+    except Exception:
+        return []
+
+
 def resolve_catalogs():
-    """Tra ve (cats, errs) - danh sach catalog + list loi de bao cao qua JSON."""
-    cats, errs = [], []
-    # Thu nhieu DSN candidate: user tuy chon, ".\WINCC" (default WinCC 7.x),
-    # ".\SQLEXPRESS" (WinCC dung Express), "<hostname>\WINCC", "<hostname>\SQLEXPRESS"
+    """Tra ve (cats, errs, working_dsn, all_dbs) - de bao cao chi tiet qua JSON.
+    all_dbs = liet ke moi DB thuc te tren SQL instance de user biet dat project_like."""
+    cats, errs, all_dbs = [], [], []
     host = _socket.gethostname()
     dsn_cands = [DSN]
     for extra in (r".\WINCC", r".\SQLEXPRESS", f"{host}\\WINCC", f"{host}\\SQLEXPRESS", host):
@@ -73,26 +88,32 @@ def resolve_catalogs():
                 c.Open()
                 rs = c.Execute(f"SELECT name FROM sys.databases WHERE name LIKE '{PROJECT_LIKE}' "
                               f"ORDER BY create_date DESC")
-                # pywin32 3.7 co the tra ve (Recordset, RecordsAffected) tuple thay vi Recordset
                 if isinstance(rs, tuple):
                     rs = rs[0]
+                matched = 0
                 while not rs.EOF:
                     n = str(rs.Fields(0).Value)
                     if n not in cats:
                         cats.append(n)
+                    matched += 1
                     rs.MoveNext()
+                # Truong hop Open+Execute OK nhung 0 rows: LOG ro cho user biet.
+                # Dong thoi liet ke moi DB de user thay ten thuc te.
+                if not matched and not all_dbs:
+                    all_dbs = _query_all_dbs(c, prov)
+                    errs.append(f"{dsn}/{prov}: SQL OK, 0 DB khop '{PROJECT_LIKE}'. "
+                                f"DB thuc te: {all_dbs[:5]}")
                 c.Close()
-                _dbg(f"resolve_catalogs: {dsn}/{prov} OK, catalogs={cats[:3]}")
+                _dbg(f"resolve_catalogs: {dsn}/{prov} OK, matched={matched}")
                 if cats:
-                    return cats, errs, dsn  # tra ve DSN thanh cong cho connect() dung lai
+                    return cats, errs, dsn, all_dbs
             except Exception as e:
                 errs.append(f"{dsn}/{prov}: {str(e)[:100]}")
                 _dbg(f"resolve_catalogs: {dsn}/{prov} loi -> {str(e)[:120]}")
                 continue
-    # Khong resolve duoc catalog nao - tra fallback (neu co config)
     if CATALOG_FALLBACK and CATALOG_FALLBACK not in cats:
         cats.append(CATALOG_FALLBACK)
-    return cats, errs, DSN
+    return cats, errs, DSN, all_dbs
 
 
 def connect(catalog, dsn=None):
@@ -146,9 +167,10 @@ def main():
     conn = None
     last_err = ""
     resolve_errs = []
+    all_dbs = []
     working_dsn = DSN
     try:
-        cands, resolve_errs, working_dsn = resolve_catalogs()
+        cands, resolve_errs, working_dsn, all_dbs = resolve_catalogs()
     except Exception as e:
         cands = [CATALOG_FALLBACK] if CATALOG_FALLBACK else []
         last_err = str(e)[:160]
@@ -164,10 +186,12 @@ def main():
             last_err = str(e)[:200]
     if conn is None:
         out["error"] = "Khong ket noi duoc OLE-DB provider. Kiem tra WinCC Runtime co ACTIVE khong."
-        out["resolve_errs"] = resolve_errs[:6]     # loi tim catalog (DSN + provider)
+        out["resolve_errs"] = resolve_errs[:8]     # loi tim catalog (DSN + provider)
         out["connect_errs"] = connect_errs[:6]     # loi mo WinCCOLEDBProvider tren catalog
         out["candidates"] = cands[:6]              # catalog thu ket noi
         out["dsn_used"] = working_dsn              # DSN cuoi cung dung
+        out["all_dbs"] = all_dbs[:15]              # ten DB thuc te tren SQL instance
+        out["project_like"] = PROJECT_LIKE         # pattern dang tim
         out["hostname"] = _socket.gethostname()
         print(json.dumps(out, ensure_ascii=False, default=str))
         return
