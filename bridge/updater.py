@@ -34,21 +34,36 @@ def _remote_version():
         return r.read().decode("utf-8", "replace").strip()
 
 
-def check_and_update(cfg):
+def check_and_update(cfg, log=None):
+    """log: callback(msg) tuy chon - de service.py in ra service.log, tranh
+    OTA fail am tham (truoc day loi mang/TLS/DNS bi nuot, khong co dau vet nao)."""
+    def _log(m):
+        if log:
+            log(f"OTA: {m}")
     if not cfg.get("ota", {}).get("enabled"):
         return False
     try:
-        if _remote_version() == _local_version():
-            return False  # khong co ban moi
-    except Exception:
-        return False      # khong check duoc -> giu code cu, chay tiep
+        remote = _remote_version()
+    except Exception as e:
+        _log(f"khong lay duoc version.txt tu GitHub - {type(e).__name__}: {str(e)[:200]}")
+        return False
+    local = _local_version()
+    if remote == local:
+        _log(f"da la ban moi nhat ({local})")
+        return False
+    _log(f"co ban moi {local} -> {remote}, dang cap nhat...")
     # Co ban moi
-    if not _git_update():
-        _http_update()
+    used_git = _git_update()
+    if not used_git:
+        try:
+            _http_update()
+        except Exception as e:
+            _log(f"HTTP-zip update loi - {type(e).__name__}: {str(e)[:200]}")
+            return False
     try:
         _sync_box(cfg)
-    except Exception:
-        pass
+    except Exception as e:
+        _log(f"sync box loi (khong chan update) - {str(e)[:150]}")
     return True
 
 

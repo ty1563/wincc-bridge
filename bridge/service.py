@@ -89,7 +89,7 @@ def main():
         if ota_on and (time.time() - last_ota) >= ota_iv:
             last_ota = time.time()
             try:
-                if updater.check_and_update(cfg):
+                if updater.check_and_update(cfg, log=log):
                     log("OTA: co code moi -> thoat de NSSM khoi dong lai voi code moi")
                     sys.exit(0)
             except Exception as e:
