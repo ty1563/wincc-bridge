@@ -88,6 +88,7 @@ def _station_env(cfg):
     if s.get("project_like"):     env["WINCC_PROJECT_LIKE"] = str(s["project_like"])
     if s.get("catalog_fallback"): env["WINCC_CATALOG_FALLBACK"] = str(s["catalog_fallback"])
     if s.get("dsn"):              env["WINCC_DSN"] = str(s["dsn"])
+    if s.get("read_mode"):        env["WINCC_READ_MODE"] = str(s["read_mode"])
     # [tags] = {ten: valueid} -> JSON qua WINCC_TAG_MAP cho reader (tram khac ValueID khac).
     tags = cfg.get("tags")
     if tags:

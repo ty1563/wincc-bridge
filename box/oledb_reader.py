@@ -34,6 +34,9 @@ PROJECT_LIKE = _os.environ.get("WINCC_PROJECT_LIKE") or "CC[_]Dakrosa1[_]%R"
 _cfb_env = _os.environ.get("WINCC_CATALOG_FALLBACK")
 CATALOG_FALLBACK = _cfb_env if _cfb_env else "CC_Dakrosa1_23_10_10_10_26_33R"
 STATION_NAME = _os.environ.get("WINCC_STATION_NAME") or "Dakrosa1"
+# READ_MODE = "raw" -> giai ma thang bang TagCompressed (khong dung WinCCOLEDBProvider).
+# Dung cho may co project WinCC lech ten (archive mo coi) khien provider tra 0 du data co that.
+READ_MODE = (_os.environ.get("WINCC_READ_MODE") or "").lower()
 WINDOW_MIN = 5
 # Timeout de reader khong treo mai (ADODB mac dinh khong timeout khi Open/Execute).
 CONN_TIMEOUT_SEC = 5
@@ -179,10 +182,171 @@ def read_stats(conn, vid, beg, end):
             "min": min(vals), "max": max(vals), "avg": sum(vals) / len(vals), "last_ts": last_ts}
 
 
+# ============================================================
+# RAW-DECODE mode: doc thang TagCompressed, giai ma float32 theo marker '00 00'.
+# WinCC nen gia tri dang float32, moi gia tri that dung SAU 2 byte 00 00 (byte
+# truoc do la delta != 0). Gia tri 0.0/-0.0 xen giua la marker "khong doi" -> bo.
+# Da kiem chung: tan so ra ~50Hz, cong suat H3 ~560kW khop HMI.
+# ============================================================
+import struct as _struct
+import math as _math
+
+
+def _sql_master():
+    """Ket noi SQLOLEDB toi master, thu nhieu DSN (khong dung WinCCOLEDBProvider)."""
+    host = _socket.gethostname()
+    cands = [DSN]
+    for x in (r".\WINCC", f"{host}\\WINCC", r".\SQLEXPRESS", host):
+        if x not in cands:
+            cands.append(x)
+    for dsn in cands:
+        for prov in ("SQLOLEDB", "MSOLEDBSQL"):
+            try:
+                c = win32com.client.Dispatch("ADODB.Connection")
+                c.ConnectionTimeout = CONN_TIMEOUT_SEC
+                c.CommandTimeout = 30
+                c.ConnectionString = (f"Provider={prov};Data Source={dsn};Initial Catalog=master;"
+                                      f"Integrated Security=SSPI;TrustServerCertificate=yes")
+                c.Open()
+                return c, dsn
+            except Exception:
+                continue
+    return None, None
+
+
+def _exec_rows(c, sql):
+    rs = c.Execute(sql)
+    if isinstance(rs, tuple):
+        rs = rs[0]
+    out = []
+    while not rs.EOF:
+        out.append([rs.Fields(i).Value for i in range(rs.Fields.Count)])
+        rs.MoveNext()
+    return out
+
+
+def _find_live_archive(c):
+    """TLG_F archive co du lieu MOI NHAT (tu bam theo du reboot shuffle doi archive)."""
+    dbs = [str(r[0]) for r in _exec_rows(c, "SELECT name FROM sys.databases WHERE name LIKE '%TLG[_]F%'")]
+    best, best_t = None, None
+    for db in dbs:
+        try:
+            r = _exec_rows(c, f"SELECT MAX(Timeend) FROM [{db}].dbo.TagCompressed")
+            t = r[0][0] if r else None
+            if t is not None and (best_t is None or t > best_t):
+                best_t, best = t, db
+        except Exception:
+            continue
+    return best, best_t
+
+
+def _decode_block(raw):
+    """Giai ma 1 block TagCompressed -> list gia tri that (float32 sau marker 00 00)."""
+    vals = []
+    n = len(raw)
+    for o in range(3, n - 4):
+        if raw[o - 1] == 0 and raw[o - 2] == 0 and raw[o - 3] != 0:
+            f = _struct.unpack("<f", raw[o:o + 4])[0]
+            # giu gia tri that (>=1e-6, <1e6); bo marker 0.0/-0.0 va denormal misalign
+            if not (_math.isnan(f) or _math.isinf(f)) and 1e-6 < abs(f) < 1e6:
+                vals.append(f)
+    return vals
+
+
+def _robust(vals):
+    """Bo outlier (spike rac do doc float lech): giu gia tri quanh median, giu thu tu."""
+    s = sorted(vals)
+    mid = s[len(s) // 2]
+    band = max(abs(mid) * 0.5, 1e-3)
+    kept = [v for v in vals if abs(v - mid) <= band]
+    return kept or vals
+
+
+def _stale_sec(te, live_t):
+    """So giay block nay cu hon du lieu moi nhat archive (te, live_t la datetime)."""
+    try:
+        return (live_t - te).total_seconds()
+    except Exception:
+        return 0
+
+
+def _read_raw_tag(c, db, vid, live_t=None):
+    """Doc block moi nhat cua ValueID -> thong ke. None neu khong co block."""
+    rs = c.Execute(f"SELECT TOP 1 Timeend, BinValues FROM [{db}].dbo.TagCompressed "
+                   f"WHERE ValueID={vid} AND DATALENGTH(BinValues) > 300 ORDER BY Timeend DESC")
+    if isinstance(rs, tuple):
+        rs = rs[0]
+    if rs.EOF:
+        return None
+    te_raw = rs.Fields(0).Value
+    te = str(te_raw)
+    raw = bytes(rs.Fields(1).Value)
+    rs.Close()
+    # Block cu hon 15 phut so voi du lieu moi nhat -> tag khong con cap nhat (vd to may dung) -> 0
+    if live_t is not None and _stale_sec(te_raw, live_t) > 900:
+        return {"count": 0, "last": 0.0, "min": 0.0, "max": 0.0, "avg": 0.0,
+                "last_ts": te, "stale": True}
+    vals = _decode_block(raw)
+    if not vals:
+        return {"count": 0, "last": 0.0, "min": 0.0, "max": 0.0, "avg": 0.0, "last_ts": te}
+    vals = _robust(vals)
+    return {"count": len(vals), "last": vals[-1], "min": min(vals), "max": max(vals),
+            "avg": sum(vals) / len(vals), "last_ts": te}
+
+
+def _main_raw(out):
+    c, dsn = _sql_master()
+    if c is None:
+        out["error"] = "RAW: khong ket noi SQL (SQLOLEDB) - kiem tra .\\WINCC"
+        print(json.dumps(out, ensure_ascii=False, default=str))
+        return
+    out["read_mode"] = "raw"
+    out["dsn_used"] = dsn
+    db, live_t = _find_live_archive(c)
+    if not db:
+        out["error"] = "RAW: khong tim thay archive TLG_F co du lieu"
+        print(json.dumps(out, ensure_ascii=False, default=str))
+        return
+    out["archive"] = db
+    out["archive_latest"] = str(live_t)
+    n_err = 0
+    for vid, name in MAP.items():
+        try:
+            s = _read_raw_tag(c, db, vid, live_t)
+            if s is not None:
+                out["tags"][name] = s
+        except Exception as e:
+            out["tags"][name] = {"error": str(e)[:120]}
+            n_err += 1
+    try:
+        c.Close()
+    except Exception:
+        pass
+    if n_err:
+        out["tag_errors"] = n_err
+    if len(out["tags"]) == 0:
+        out["error"] = "RAW: 0 tag doc duoc"
+    energy = {}
+    for up in ("bus_P", "u1_P", "u2_P", "u3_P"):
+        t = out["tags"].get(up)
+        if isinstance(t, dict) and t.get("avg") is not None:
+            energy[up.replace("_P", "_MWh_5min")] = round(t["avg"] * WINDOW_MIN / 60.0, 6)
+    out["energy_5min"] = energy
+    print(json.dumps(out, ensure_ascii=False, default=str))
+
+
 def main():
     now = datetime.datetime.utcnow()
     out = {"snapshot_utc": now.replace(microsecond=0).isoformat() + "Z",
            "window_min": WINDOW_MIN, "station": STATION_NAME, "tags": {}}
+    # RAW mode: giai ma thang, khong dung WinCCOLEDBProvider
+    if READ_MODE == "raw":
+        try:
+            _main_raw(out)
+        except Exception as e:
+            out["error"] = "RAW loi: " + str(e)[:200]
+            print(json.dumps(out, ensure_ascii=False, default=str))
+        return
     # Ket noi: thu lan luot cac catalog
     conn = None
     last_err = ""
