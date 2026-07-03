@@ -1,6 +1,10 @@
 # Copy thanh config.local.toml va dien. KHONG commit file config.local.toml (da gitignore).
 [webhook]
 url = "https://n8n.svnagentic.site/webhook/<id>?user=1"
+# (tuy chon) webhook PHU nhan ban sao snapshot (fan-out). Mac dinh da tro
+# dashboard DAKROSA portal (hang so EXTRA_URL trong bridge/poster.py, doi qua OTA).
+# Chi khai bao neu muon ghi de. Loi ben phu KHONG anh huong luong chinh (n8n).
+# extra_url = "https://dakrosa.svnagentic.site/api/dakrosa/wincc/webhook"
 
 [station]
 # Tram nay ten gi -> n8n biet phan biet payload cua may nao gui.

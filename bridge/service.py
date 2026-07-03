@@ -61,6 +61,13 @@ def one_snapshot(cfg, ping=None):
     except Exception as e:
         log(f"POST ERR: {e}")
         log(f"  hint: {hint(str(e))}")
+    # Fan-out sang dashboard (best-effort): loi o day KHONG anh huong luong n8n.
+    try:
+        st2, _ = poster.post_extra(cfg, payload)
+        if st2 is not None:
+            log(f"  -> dashboard HTTP {st2}")
+    except Exception as e:
+        log(f"  dashboard POST loi (bo qua): {str(e)[:120]}")
 
 
 def once(cfg):
