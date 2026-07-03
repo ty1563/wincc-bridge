@@ -11,9 +11,21 @@ except Exception:
 
 from bridge import config, collect, poster, updater
 
+# Chu ky gui snapshot (giay). Code la TRAN toi da -> OTA doi duoc ma khong can
+# sua config tren tung may tram. Config [intervals] snapshot_sec chi lam NHANH
+# hon (vd 15s), KHONG cham hon tran. Floor 10s de khong don dap may WinCC.
+SNAPSHOT_SEC_MAX = 30
+
 
 def log(msg):
     print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] {msg}", flush=True)
+
+
+def effective_snap_iv(cfg):
+    """Chu ky snapshot thuc te: min(config, SNAPSHOT_SEC_MAX), floor 10s.
+    Config cu 'snapshot_sec = 300' se tu bi ep xuong 30s ma khong can sua may."""
+    want = int(cfg.get("intervals", {}).get("snapshot_sec", SNAPSHOT_SEC_MAX))
+    return max(10, min(want, SNAPSHOT_SEC_MAX))
 
 
 def hint(err):
@@ -81,7 +93,7 @@ def main():
     if "--once" in sys.argv:
         once(cfg)
         return
-    snap_iv = int(cfg["intervals"]["snapshot_sec"])
+    snap_iv = effective_snap_iv(cfg)
     ota_iv = int(cfg["intervals"].get("ota_sec", 900))
     ota_on = bool(cfg.get("ota", {}).get("enabled"))
     log(f"WinCC Bridge start | snapshot={snap_iv}s ota={ota_iv}s ota_enabled={ota_on}")

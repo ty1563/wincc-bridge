@@ -55,7 +55,10 @@ reader = "C:/Users/<user>/wincc-bridge/box/oledb_reader.py"
 # u3_speed = 1624
 
 [intervals]
-snapshot_sec = 300
+# snapshot_sec: code (bridge/service.py SNAPSHOT_SEC_MAX=30) ep TRAN <=30s ->
+# gia tri o day chi lam NHANH hon (vd 15), khong cham hon. De trong / 300 cung
+# thanh 30s. Doi nhip realtime cho ca fleet -> sua SNAPSHOT_SEC_MAX roi OTA.
+snapshot_sec = 30
 ota_sec = 900
 
 [ota]
