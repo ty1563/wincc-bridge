@@ -231,9 +231,11 @@ def _exec_rows(c, sql):
     return out
 
 
-def _find_live_archive(c):
-    """TLG_F archive co du lieu MOI NHAT (tu bam theo du reboot shuffle doi archive)."""
-    dbs = [str(r[0]) for r in _exec_rows(c, "SELECT name FROM sys.databases WHERE name LIKE '%TLG[_]F%'")]
+def _find_live_archive(c, like="%TLG[_]F%"):
+    """Archive (theo pattern) co du lieu MOI NHAT (tu bam theo du reboot shuffle).
+    Mac dinh TLG_F (Fast); truyen '%TLG[_]S%' de tim TagLogging SLOW (nhiet do,
+    tan so... thuong duoc ghi o archive Slow voi chu ky phut/gio)."""
+    dbs = [str(r[0]) for r in _exec_rows(c, f"SELECT name FROM sys.databases WHERE name LIKE '{like}'")]
     best, best_t = None, None
     for db in dbs:
         try:
@@ -349,44 +351,29 @@ DUMP_ACTIVE_HOURS = 2              # chi lay tag co block moi trong N gio (tag d
 DUMP_MAX_NAMES = 8000              # tran so dong ban do ten tag
 
 
-def _main_rawdump(out):
-    """DUMP block TagCompressed tho (moi ValueID dang hoat dong lay 1 block moi
-    nhat, base64) + ban do ValueID->ValueName tu bang Archive. Server se decode."""
-    c, dsn = _sql_master()
-    if c is None:
-        out["error"] = "RAWDUMP: khong ket noi SQL (SQLOLEDB)"
-        print(json.dumps(out, ensure_ascii=False, default=str))
-        return
-    out["raw_dump"] = True
-    out["dsn_used"] = dsn
-    db, live_t = _find_live_archive(c)
-    if not db:
-        out["error"] = "RAWDUMP: khong tim thay archive TLG_F co du lieu"
-        print(json.dumps(out, ensure_ascii=False, default=str))
-        return
-    out["archive"] = db
-    out["archive_latest"] = str(live_t)
-    # Ban do ten tag (de biet truong nao la gi khi phan tich)
+def _dump_names(c, db):
+    """Ban do ValueID->ValueName tu bang Archive cua db."""
     names = {}
+    for r in _exec_rows(c, f"SELECT TOP {DUMP_MAX_NAMES} ValueID, ValueName "
+                           f"FROM [{db}].dbo.Archive"):
+        names[str(int(r[0]))] = str(r[1])
+    return names
+
+
+def _dump_blocks(c, db, live_t, hours, cap):
+    """Moi ValueID dang hoat dong (Timeend trong `hours` gio) lay 1 block MOI
+    NHAT (ROW_NUMBER co tu SQL Server 2005). Tra (blocks, total_vids, total_bytes,
+    truncated). Blocks sap newest-first nen truncate giu tag song khoe nhat."""
     try:
-        for r in _exec_rows(c, f"SELECT TOP {DUMP_MAX_NAMES} ValueID, ValueName "
-                               f"FROM [{db}].dbo.Archive"):
-            names[str(int(r[0]))] = str(r[1])
-    except Exception as e:
-        out["names_error"] = str(e)[:150]
-    out["names"] = names
-    # Cutoff: chi tag co block moi trong DUMP_ACTIVE_HOURS gio (dang archive)
-    try:
-        cutoff = fmt(live_t - datetime.timedelta(hours=DUMP_ACTIVE_HOURS))
+        cutoff = fmt(live_t - datetime.timedelta(hours=hours))
     except Exception:
-        cutoff = fmt(datetime.datetime.utcnow() - datetime.timedelta(hours=DUMP_ACTIVE_HOURS))
+        cutoff = fmt(datetime.datetime.utcnow() - datetime.timedelta(hours=hours))
     try:
         r = _exec_rows(c, f"SELECT COUNT(DISTINCT ValueID) FROM [{db}].dbo.TagCompressed "
                           f"WHERE Timeend >= '{cutoff}'")
-        out["total_vids"] = int(r[0][0]) if r else None
+        total_vids = int(r[0][0]) if r else None
     except Exception:
-        out["total_vids"] = None
-    # Moi ValueID lay 1 block MOI NHAT (ROW_NUMBER co tu SQL Server 2005)
+        total_vids = None
     sql = (f"SELECT vid, tb, te, ln, bv FROM ("
            f"SELECT ValueID vid, Timebegin tb, Timeend te, DATALENGTH(BinValues) ln, "
            f"BinValues bv, ROW_NUMBER() OVER (PARTITION BY ValueID ORDER BY Timeend DESC) rn "
@@ -402,7 +389,7 @@ def _main_rawdump(out):
         try:
             ln = int(rs.Fields(3).Value or 0)
             if 16 < ln <= DUMP_MAX_BLOB:
-                if total + ln > DUMP_MAX_TOTAL:
+                if total + ln > cap:
                     truncated = True
                     break
                 raw = bytes(rs.Fields(4).Value)
@@ -416,13 +403,68 @@ def _main_rawdump(out):
         rs.MoveNext()
     try:
         rs.Close()
+    except Exception:
+        pass
+    return blocks, total_vids, total, truncated
+
+
+def _main_rawdump(out):
+    """DUMP block TagCompressed tho (base64) + ban do ten tag; server decode.
+    Quet CA TagLogging Fast (TLG_F) lan Slow (TLG_S - nhiet do/tan so thuong
+    ghi o day voi chu ky cham). Liet ke all_tlg_dbs de biet may co archive gi."""
+    c, dsn = _sql_master()
+    if c is None:
+        out["error"] = "RAWDUMP: khong ket noi SQL (SQLOLEDB)"
+        print(json.dumps(out, ensure_ascii=False, default=str))
+        return
+    out["raw_dump"] = True
+    out["dsn_used"] = dsn
+    try:
+        out["all_tlg_dbs"] = [str(r[0]) for r in _exec_rows(
+            c, "SELECT name FROM sys.databases WHERE name LIKE '%TLG%'")][:25]
+    except Exception:
+        pass
+    db, live_t = _find_live_archive(c)
+    if not db:
+        out["error"] = "RAWDUMP: khong tim thay archive TLG_F co du lieu"
+        print(json.dumps(out, ensure_ascii=False, default=str))
+        return
+    out["archive"] = db
+    out["archive_latest"] = str(live_t)
+    try:
+        out["names"] = _dump_names(c, db)
+    except Exception as e:
+        out["names"] = {}
+        out["names_error"] = str(e)[:150]
+    blocks, total_vids, total, trunc = _dump_blocks(c, db, live_t, DUMP_ACTIVE_HOURS,
+                                                    DUMP_MAX_TOTAL)
+    out["blocks"] = blocks
+    out["total_vids"] = total_vids
+    out["shipped_vids"] = len(blocks)
+    out["truncated"] = trunc
+    out["dump_bytes"] = total
+    # TagLogging SLOW (neu co): cua so rong hon (chu ky ghi cham), cap nho hon
+    try:
+        db_s, live_s = _find_live_archive(c, "%TLG[_]S%")
+        if db_s:
+            out["archive_slow"] = db_s
+            out["archive_slow_latest"] = str(live_s)
+            try:
+                out["names_slow"] = _dump_names(c, db_s)
+            except Exception as e:
+                out["names_slow"] = {}
+                out["names_slow_error"] = str(e)[:150]
+            bl_s, tv_s, tot_s, tr_s = _dump_blocks(c, db_s, live_s, 48, 1024 * 1024)
+            out["blocks_slow"] = bl_s
+            out["total_vids_slow"] = tv_s
+            out["truncated_slow"] = tr_s
+            out["dump_bytes_slow"] = tot_s
+    except Exception as e:
+        out["slow_error"] = str(e)[:150]
+    try:
         c.Close()
     except Exception:
         pass
-    out["blocks"] = blocks
-    out["shipped_vids"] = len(blocks)
-    out["truncated"] = truncated
-    out["dump_bytes"] = total
     print(json.dumps(out, ensure_ascii=False, default=str))
 
 
