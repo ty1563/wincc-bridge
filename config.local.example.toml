@@ -61,7 +61,7 @@ reader = "C:/Users/<user>/wincc-bridge/box/oledb_reader.py"
 snapshot_sec = 30
 ota_sec = 900
 # rawship_sec: chu ky gui RAW DUMP TagCompressed (b64) len server decode du tag.
-# Chi chay khi [station] read_mode="raw" + [winccbox] mode="local". 0 = tat.
+# Chay o MOI tram (local lan remote/SSH). 0 = tat.
 # Mac dinh 300s (hang so RAW_SHIP_SEC trong bridge/service.py, doi qua OTA).
 # rawship_sec = 300
 

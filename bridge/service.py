@@ -15,19 +15,18 @@ from bridge import config, collect, poster, updater
 # sua config tren tung may tram. Config [intervals] snapshot_sec chi lam NHANH
 # hon (vd 15s), KHONG cham hon tran. Floor 10s de khong don dap may WinCC.
 SNAPSHOT_SEC_MAX = 30
-# Chu ky gui RAW DUMP (blob TagCompressed b64) len server decode - chi tram
-# read_mode=raw + mode=local (vd Dakrosa2). Config [intervals] rawship_sec ghi
-# de; 0 = tat. Server decode DU tag thay vi 24 tag map tay.
+# Chu ky gui RAW DUMP (blob TagCompressed b64) len server decode - chay o MOI
+# tram (ke ca tram provider nhu Dakrosa1: dump la kenh phu doc lap, khai thac
+# du tag ma provider khong tra - tan so, nhiet do, cong to...). Config
+# [intervals] rawship_sec ghi de; 0 = tat.
 RAW_SHIP_SEC = 300
 
 
 def raw_ship_iv(cfg):
-    """Chu ky raw-dump: chi bat khi tram doc raw TREN CHINH may WinCC (local).
-    Tra 0 = tat (vd Dakrosa1: provider mode, khong can dump)."""
-    if (cfg.get("station", {}).get("read_mode") or "").lower() != "raw":
-        return 0
-    if (cfg.get("winccbox", {}).get("mode") or "").lower() != "local":
-        return 0
+    """Chu ky raw-dump (giay); 0 = tat. Mac dinh bat cho moi tram:
+    - mode=local (Dakrosa2): reader chay tai cho voi WINCC_DUMP_RAW=1
+    - mode=remote (Dakrosa1): SSH sang box voi argv --dump-raw
+    Loi dump khong anh huong snapshot chinh (caller try/except)."""
     try:
         return max(0, int(cfg.get("intervals", {}).get("rawship_sec", RAW_SHIP_SEC)))
     except Exception:

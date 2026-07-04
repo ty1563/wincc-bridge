@@ -37,10 +37,11 @@ STATION_NAME = _os.environ.get("WINCC_STATION_NAME") or "Dakrosa1"
 # READ_MODE = "raw" -> giai ma thang bang TagCompressed (khong dung WinCCOLEDBProvider).
 # Dung cho may co project WinCC lech ten (archive mo coi) khien provider tra 0 du data co that.
 READ_MODE = (_os.environ.get("WINCC_READ_MODE") or "").lower()
-# DUMP_RAW=1 (kem READ_MODE=raw): thay vi decode tai cho, DUMP block TagCompressed
-# tho (base64) + ban do ten tag de gui len server decode -> khai thac DU tag,
-# va tai ve may khac phan tich offline. Van READ-ONLY (chi SELECT).
-DUMP_RAW = (_os.environ.get("WINCC_DUMP_RAW") or "") == "1"
+# DUMP_RAW: thay vi doc tag thuong, DUMP block TagCompressed tho (base64) + ban
+# do ten tag de gui len server decode -> khai thac DU tag, va tai ve may khac
+# phan tich offline. Van READ-ONLY (chi SELECT). Bat bang ENV WINCC_DUMP_RAW=1
+# (mode local) HOAC argv --dump-raw (mode remote: SSH KHONG forward env var).
+DUMP_RAW = (_os.environ.get("WINCC_DUMP_RAW") or "") == "1" or "--dump-raw" in _sys.argv
 WINDOW_MIN = 5
 # Timeout de reader khong treo mai (ADODB mac dinh khong timeout khi Open/Execute).
 CONN_TIMEOUT_SEC = 5
@@ -429,8 +430,10 @@ def main():
     now = datetime.datetime.utcnow()
     out = {"snapshot_utc": now.replace(microsecond=0).isoformat() + "Z",
            "window_min": WINDOW_MIN, "station": STATION_NAME, "tags": {}}
-    # RAW mode: giai ma thang, khong dung WinCCOLEDBProvider
-    if READ_MODE == "raw":
+    # RAW mode / RAW DUMP: doc thang TagCompressed, khong dung WinCCOLEDBProvider.
+    # DUMP_RAW chay duoc o MOI tram (ke ca tram provider nhu Dakrosa1) vi la
+    # kenh phu doc lap; READ_MODE=raw chi anh huong duong snapshot chinh.
+    if READ_MODE == "raw" or DUMP_RAW:
         try:
             if DUMP_RAW:
                 del out["tags"]  # dump khong co tags decode; server tu decode

@@ -125,29 +125,10 @@ def _collect_local(cfg):
     raise RuntimeError(f"collect local that bai: {last}")
 
 
-def collect_rawdump(cfg):
-    """Chay reader o che do DUMP RAW (WINCC_DUMP_RAW=1): tra JSON chua block
-    TagCompressed tho (b64) + ban do ten tag, de service POST len server decode.
-    Chi ho tro mode=local (tram vua chay WinCC vua co internet, vd Dakrosa2).
-    Dump nang hon snapshot thuong -> timeout 150s, 1 lan (khong retry)."""
+def _ssh_base(cfg):
+    """Phan dau lenh SSH toi box (ke ca target da resolve). Tach rieng de
+    collect() va collect_rawdump() dung chung, hanh vi giu NGUYEN nhu cu."""
     w = cfg["winccbox"]
-    if (w.get("mode") or "").lower() != "local":
-        raise RuntimeError("rawdump chi ho tro mode=local")
-    env = _station_env(cfg)
-    env["WINCC_DUMP_RAW"] = "1"
-    p = subprocess.run([w["python32"], w["reader"]], capture_output=True, text=True,
-                       timeout=150, env=env, encoding="utf-8", errors="replace")
-    if p.returncode == 0 and p.stdout.strip():
-        return json.loads(p.stdout)
-    raise RuntimeError(f"rawdump that bai: {(p.stderr or p.stdout or 'rong')[:200]}")
-
-
-def collect(cfg):
-    w = cfg["winccbox"]
-    # Che do LOCAL: chay OLE-DB reader ngay tren may nay (khong SSH).
-    # Dung cho may co ca WinCC va internet.
-    if (w.get("mode") or "").lower() == "local":
-        return _collect_local(cfg)
     if w.get("key"):
         _secure_key(w["key"])  # tu khoa quyen key truoc khi ssh (OpenSSH kho tinh)
     ssh = ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=12",
@@ -161,7 +142,39 @@ def collect(cfg):
         if changed:
             print(f"[detect] box IP doi -> dung {host}", flush=True)
         target = f'{w["user"]}@{host}'
-    cmd = ssh + [target, w["python32"], w["reader"]]
+    return ssh + [target]
+
+
+def collect_rawdump(cfg):
+    """Chay reader o che do DUMP RAW: tra JSON chua block TagCompressed tho
+    (b64) + ban do ten tag, de service POST len server decode.
+    - mode=local (Dakrosa2): chay tai cho, bat bang ENV WINCC_DUMP_RAW=1
+    - mode=remote (Dakrosa1): SSH sang box, bat bang argv --dump-raw
+      (SSH KHONG forward env var -> phai dung CLI flag).
+    Dump nang hon snapshot thuong -> timeout 150s, 1 lan (chu ky sau tu thu lai)."""
+    w = cfg["winccbox"]
+    if (w.get("mode") or "").lower() == "local":
+        env = _station_env(cfg)
+        env["WINCC_DUMP_RAW"] = "1"
+        cmd = [w["python32"], w["reader"], "--dump-raw"]
+        p = subprocess.run(cmd, capture_output=True, text=True, timeout=150,
+                           env=env, encoding="utf-8", errors="replace")
+    else:
+        cmd = _ssh_base(cfg) + [w["python32"], w["reader"], "--dump-raw"]
+        p = subprocess.run(cmd, capture_output=True, text=True, timeout=150,
+                           encoding="utf-8", errors="replace")
+    if p.returncode == 0 and p.stdout.strip():
+        return json.loads(p.stdout)
+    raise RuntimeError(f"rawdump that bai: {(p.stderr or p.stdout or 'rong')[:200]}")
+
+
+def collect(cfg):
+    w = cfg["winccbox"]
+    # Che do LOCAL: chay OLE-DB reader ngay tren may nay (khong SSH).
+    # Dung cho may co ca WinCC va internet.
+    if (w.get("mode") or "").lower() == "local":
+        return _collect_local(cfg)
+    cmd = _ssh_base(cfg) + [w["python32"], w["reader"]]
     last = ""
     # Gioi han tong thoi gian < chu ky 5 phut: 3 lan x (90s timeout + 2s) ~ 276s.
     # Box unreachable thi ConnectTimeout=12 fail nhanh (~42s) -> loop giu nhip ~5p.
