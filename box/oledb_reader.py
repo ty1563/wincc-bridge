@@ -408,6 +408,50 @@ def _dump_blocks(c, db, live_t, hours, cap):
     return blocks, total_vids, total, truncated
 
 
+def _find_live_slow(c):
+    """TLG_S (TagLogging SLOW) luu du lieu o bang TagUncompressed (KHONG nen,
+    hang tho: ValueID/Timestamp/RealValue) -> tim db co Timestamp moi nhat.
+    (TagCompressed trong TLG_S rong nen khong dung _find_live_archive.)"""
+    dbs = [str(r[0]) for r in _exec_rows(
+        c, "SELECT name FROM sys.databases WHERE name LIKE '%TLG[_]S%'")]
+    best, best_t = None, None
+    for db in dbs:
+        try:
+            r = _exec_rows(c, f"SELECT MAX(Timestamp) FROM [{db}].dbo.TagUncompressed")
+            t = r[0][0] if r else None
+            if t is not None and (best_t is None or t > best_t):
+                best_t, best = t, db
+        except Exception:
+            continue
+    return best, best_t
+
+
+def _dump_slow_values(c, db, live_t, hours=48, top=5000):
+    """Doc TRUC TIEP gia tri tu TagUncompressed (khong can decode): moi ValueID
+    lay gia tri MOI NHAT + thong ke (count/min/max/avg) trong cua so `hours`."""
+    try:
+        cutoff = fmt(live_t - datetime.timedelta(hours=hours))
+    except Exception:
+        cutoff = fmt(datetime.datetime.utcnow() - datetime.timedelta(hours=hours))
+    agg = {}
+    for r in _exec_rows(c, f"SELECT ValueID, COUNT(*), MIN(RealValue), MAX(RealValue), "
+                           f"AVG(RealValue) FROM [{db}].dbo.TagUncompressed "
+                           f"WHERE Timestamp >= '{cutoff}' GROUP BY ValueID"):
+        agg[int(r[0])] = (int(r[1]), r[2], r[3], r[4])
+    vals = []
+    sql = (f"SELECT vid, ts, val FROM (SELECT ValueID vid, Timestamp ts, RealValue val, "
+           f"ROW_NUMBER() OVER (PARTITION BY ValueID ORDER BY Timestamp DESC) rn "
+           f"FROM [{db}].dbo.TagUncompressed WHERE Timestamp >= '{cutoff}') t WHERE rn = 1")
+    for r in _exec_rows(c, sql):
+        vid = int(r[0])
+        n, mn, mx, av = agg.get(vid, (1, None, None, None))
+        vals.append({"vid": vid, "ts": str(r[1]), "last": r[2],
+                     "n": n, "min": mn, "max": mx, "avg": av})
+        if len(vals) >= top:
+            break
+    return vals
+
+
 def _main_rawdump(out):
     """DUMP block TagCompressed tho (base64) + ban do ten tag; server decode.
     Quet CA TagLogging Fast (TLG_F) lan Slow (TLG_S - nhiet do/tan so thuong
@@ -443,9 +487,10 @@ def _main_rawdump(out):
     out["shipped_vids"] = len(blocks)
     out["truncated"] = trunc
     out["dump_bytes"] = total
-    # TagLogging SLOW (neu co): cua so rong hon (chu ky ghi cham), cap nho hon
+    # TagLogging SLOW (neu co): du lieu o TagUncompressed -> doc TRUC TIEP gia
+    # tri (khong can decode block). Cua so 48h vi chu ky ghi cham (phut/gio).
     try:
-        db_s, live_s = _find_live_archive(c, "%TLG[_]S%")
+        db_s, live_s = _find_live_slow(c)
         if db_s:
             out["archive_slow"] = db_s
             out["archive_slow_latest"] = str(live_s)
@@ -454,11 +499,8 @@ def _main_rawdump(out):
             except Exception as e:
                 out["names_slow"] = {}
                 out["names_slow_error"] = str(e)[:150]
-            bl_s, tv_s, tot_s, tr_s = _dump_blocks(c, db_s, live_s, 48, 1024 * 1024)
-            out["blocks_slow"] = bl_s
-            out["total_vids_slow"] = tv_s
-            out["truncated_slow"] = tr_s
-            out["dump_bytes_slow"] = tot_s
+            out["slow_values"] = _dump_slow_values(c, db_s, live_s)
+            out["total_vids_slow"] = len(out["slow_values"])
     except Exception as e:
         out["slow_error"] = str(e)[:150]
     try:
