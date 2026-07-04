@@ -15,6 +15,23 @@ from bridge import config, collect, poster, updater
 # sua config tren tung may tram. Config [intervals] snapshot_sec chi lam NHANH
 # hon (vd 15s), KHONG cham hon tran. Floor 10s de khong don dap may WinCC.
 SNAPSHOT_SEC_MAX = 30
+# Chu ky gui RAW DUMP (blob TagCompressed b64) len server decode - chi tram
+# read_mode=raw + mode=local (vd Dakrosa2). Config [intervals] rawship_sec ghi
+# de; 0 = tat. Server decode DU tag thay vi 24 tag map tay.
+RAW_SHIP_SEC = 300
+
+
+def raw_ship_iv(cfg):
+    """Chu ky raw-dump: chi bat khi tram doc raw TREN CHINH may WinCC (local).
+    Tra 0 = tat (vd Dakrosa1: provider mode, khong can dump)."""
+    if (cfg.get("station", {}).get("read_mode") or "").lower() != "raw":
+        return 0
+    if (cfg.get("winccbox", {}).get("mode") or "").lower() != "local":
+        return 0
+    try:
+        return max(0, int(cfg.get("intervals", {}).get("rawship_sec", RAW_SHIP_SEC)))
+    except Exception:
+        return RAW_SHIP_SEC
 
 
 def log(msg):
@@ -96,8 +113,11 @@ def main():
     snap_iv = effective_snap_iv(cfg)
     ota_iv = int(cfg["intervals"].get("ota_sec", 900))
     ota_on = bool(cfg.get("ota", {}).get("enabled"))
-    log(f"WinCC Bridge start | snapshot={snap_iv}s ota={ota_iv}s ota_enabled={ota_on}")
+    raw_iv = raw_ship_iv(cfg)
+    log(f"WinCC Bridge start | snapshot={snap_iv}s ota={ota_iv}s "
+        f"rawship={raw_iv}s ota_enabled={ota_on}")
     last_ota = time.time()
+    last_raw = 0.0  # 0 -> gui raw dump ngay chu ky dau sau khi start
     while True:
         t0 = time.time()
         try:
@@ -105,6 +125,16 @@ def main():
         except Exception as e:
             log(f"snapshot ERR: {e}")
             log(f"  hint: {hint(str(e))}")
+        # RAW DUMP dinh ky (best-effort): loi khong anh huong snapshot/n8n
+        if raw_iv and (time.time() - last_raw) >= raw_iv:
+            last_raw = time.time()
+            try:
+                dump = collect.collect_rawdump(cfg)
+                st3, body = poster.post_raw(cfg, dump)
+                log(f"rawdump {dump.get('shipped_vids', 0)}/{dump.get('total_vids', '?')} vid "
+                    f"({dump.get('dump_bytes', 0) // 1024}KB) -> HTTP {st3} {body[:80]}")
+            except Exception as e:
+                log(f"rawdump loi (bo qua): {str(e)[:150]}")
         if ota_on and (time.time() - last_ota) >= ota_iv:
             last_ota = time.time()
             try:

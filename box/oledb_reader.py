@@ -37,6 +37,10 @@ STATION_NAME = _os.environ.get("WINCC_STATION_NAME") or "Dakrosa1"
 # READ_MODE = "raw" -> giai ma thang bang TagCompressed (khong dung WinCCOLEDBProvider).
 # Dung cho may co project WinCC lech ten (archive mo coi) khien provider tra 0 du data co that.
 READ_MODE = (_os.environ.get("WINCC_READ_MODE") or "").lower()
+# DUMP_RAW=1 (kem READ_MODE=raw): thay vi decode tai cho, DUMP block TagCompressed
+# tho (base64) + ban do ten tag de gui len server decode -> khai thac DU tag,
+# va tai ve may khac phan tich offline. Van READ-ONLY (chi SELECT).
+DUMP_RAW = (_os.environ.get("WINCC_DUMP_RAW") or "") == "1"
 WINDOW_MIN = 5
 # Timeout de reader khong treo mai (ADODB mac dinh khong timeout khi Open/Execute).
 CONN_TIMEOUT_SEC = 5
@@ -190,6 +194,7 @@ def read_stats(conn, vid, beg, end):
 # ============================================================
 import struct as _struct
 import math as _math
+import base64 as _base64
 
 
 def _sql_master():
@@ -244,7 +249,8 @@ def _decode_block(raw):
     """Giai ma 1 block TagCompressed -> list gia tri that (float32 sau marker 00 00)."""
     vals = []
     n = len(raw)
-    for o in range(3, n - 4):
+    # den n-4 BAO GOM (n-3 exclusive): float cuoi block co the cham dung mep buffer
+    for o in range(3, n - 3):
         if raw[o - 1] == 0 and raw[o - 2] == 0 and raw[o - 3] != 0:
             f = _struct.unpack("<f", raw[o:o + 4])[0]
             # giu gia tri that (>=1e-6, <1e6); bo marker 0.0/-0.0 va denormal misalign
@@ -335,6 +341,90 @@ def _main_raw(out):
     print(json.dumps(out, ensure_ascii=False, default=str))
 
 
+# Gioi han dump de payload gon va khong don dap may tram (READ-ONLY, chi SELECT):
+DUMP_MAX_TOTAL = 4 * 1024 * 1024   # tong blob tho toi da ~4MB (b64 ~5.3MB)
+DUMP_MAX_BLOB = 256 * 1024         # bo blob don le > 256KB (bat thuong)
+DUMP_ACTIVE_HOURS = 2              # chi lay tag co block moi trong N gio (tag dang song)
+DUMP_MAX_NAMES = 8000              # tran so dong ban do ten tag
+
+
+def _main_rawdump(out):
+    """DUMP block TagCompressed tho (moi ValueID dang hoat dong lay 1 block moi
+    nhat, base64) + ban do ValueID->ValueName tu bang Archive. Server se decode."""
+    c, dsn = _sql_master()
+    if c is None:
+        out["error"] = "RAWDUMP: khong ket noi SQL (SQLOLEDB)"
+        print(json.dumps(out, ensure_ascii=False, default=str))
+        return
+    out["raw_dump"] = True
+    out["dsn_used"] = dsn
+    db, live_t = _find_live_archive(c)
+    if not db:
+        out["error"] = "RAWDUMP: khong tim thay archive TLG_F co du lieu"
+        print(json.dumps(out, ensure_ascii=False, default=str))
+        return
+    out["archive"] = db
+    out["archive_latest"] = str(live_t)
+    # Ban do ten tag (de biet truong nao la gi khi phan tich)
+    names = {}
+    try:
+        for r in _exec_rows(c, f"SELECT TOP {DUMP_MAX_NAMES} ValueID, ValueName "
+                               f"FROM [{db}].dbo.Archive"):
+            names[str(int(r[0]))] = str(r[1])
+    except Exception as e:
+        out["names_error"] = str(e)[:150]
+    out["names"] = names
+    # Cutoff: chi tag co block moi trong DUMP_ACTIVE_HOURS gio (dang archive)
+    try:
+        cutoff = fmt(live_t - datetime.timedelta(hours=DUMP_ACTIVE_HOURS))
+    except Exception:
+        cutoff = fmt(datetime.datetime.utcnow() - datetime.timedelta(hours=DUMP_ACTIVE_HOURS))
+    try:
+        r = _exec_rows(c, f"SELECT COUNT(DISTINCT ValueID) FROM [{db}].dbo.TagCompressed "
+                          f"WHERE Timeend >= '{cutoff}'")
+        out["total_vids"] = int(r[0][0]) if r else None
+    except Exception:
+        out["total_vids"] = None
+    # Moi ValueID lay 1 block MOI NHAT (ROW_NUMBER co tu SQL Server 2005)
+    sql = (f"SELECT vid, tb, te, ln, bv FROM ("
+           f"SELECT ValueID vid, Timebegin tb, Timeend te, DATALENGTH(BinValues) ln, "
+           f"BinValues bv, ROW_NUMBER() OVER (PARTITION BY ValueID ORDER BY Timeend DESC) rn "
+           f"FROM [{db}].dbo.TagCompressed WHERE Timeend >= '{cutoff}' "
+           f"AND DATALENGTH(BinValues) > 16) t WHERE rn = 1 ORDER BY te DESC")
+    blocks = []
+    total = 0
+    truncated = False
+    rs = c.Execute(sql)
+    if isinstance(rs, tuple):
+        rs = rs[0]
+    while not rs.EOF:
+        try:
+            ln = int(rs.Fields(3).Value or 0)
+            if 16 < ln <= DUMP_MAX_BLOB:
+                if total + ln > DUMP_MAX_TOTAL:
+                    truncated = True
+                    break
+                raw = bytes(rs.Fields(4).Value)
+                blocks.append({"vid": int(rs.Fields(0).Value),
+                               "tb": str(rs.Fields(1).Value),
+                               "te": str(rs.Fields(2).Value),
+                               "b64": _base64.b64encode(raw).decode("ascii")})
+                total += ln
+        except Exception:
+            pass  # 1 block loi khong chan ca dump
+        rs.MoveNext()
+    try:
+        rs.Close()
+        c.Close()
+    except Exception:
+        pass
+    out["blocks"] = blocks
+    out["shipped_vids"] = len(blocks)
+    out["truncated"] = truncated
+    out["dump_bytes"] = total
+    print(json.dumps(out, ensure_ascii=False, default=str))
+
+
 def main():
     now = datetime.datetime.utcnow()
     out = {"snapshot_utc": now.replace(microsecond=0).isoformat() + "Z",
@@ -342,7 +432,12 @@ def main():
     # RAW mode: giai ma thang, khong dung WinCCOLEDBProvider
     if READ_MODE == "raw":
         try:
-            _main_raw(out)
+            if DUMP_RAW:
+                del out["tags"]  # dump khong co tags decode; server tu decode
+                out["dump_utc"] = out.pop("snapshot_utc")
+                _main_rawdump(out)
+            else:
+                _main_raw(out)
         except Exception as e:
             out["error"] = "RAW loi: " + str(e)[:200]
             print(json.dumps(out, ensure_ascii=False, default=str))

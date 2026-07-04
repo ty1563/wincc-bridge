@@ -6,6 +6,7 @@ EXTRA_URL nam trong CODE (khong phai config) de doi duoc qua OTA ma khong
 phai so vao may tram; ghi de bang [webhook] extra_url trong config neu can.
 Loi ben dashboard KHONG duoc anh huong luong n8n (caller tu try/except).
 """
+import gzip
 import json
 import ssl
 import time
@@ -13,15 +14,17 @@ import urllib.request
 import urllib.error
 
 EXTRA_URL = "https://dakrosa.svnagentic.site/api/dakrosa/wincc/webhook"
+# Endpoint nhan RAW DUMP TagCompressed (blob b64) de server decode - tram raw mode.
+RAW_URL = "https://dakrosa.svnagentic.site/api/dakrosa/wincc/raw"
 
 
-def _post_one(url, data, timeout=25, retries=3, context=None):
+def _post_one(url, data, timeout=25, retries=3, context=None, headers=None):
     last = ""
+    h = {"Content-Type": "application/json", "User-Agent": "wincc-bridge"}
+    if headers:
+        h.update(headers)
     for _ in range(retries):
-        req = urllib.request.Request(
-            url, data=data,
-            headers={"Content-Type": "application/json", "User-Agent": "wincc-bridge"},
-            method="POST")
+        req = urllib.request.Request(url, data=data, headers=h, method="POST")
         try:
             with urllib.request.urlopen(req, timeout=timeout, context=context) as r:
                 return r.status, r.read(500).decode("utf-8", "replace")
@@ -63,3 +66,28 @@ def post_extra(cfg, payload):
         unv.check_hostname = False
         unv.verify_mode = ssl.CERT_NONE
         return _post_one(url, data, timeout=20, retries=1, context=unv)
+
+
+def post_raw(cfg, payload):
+    """POST raw-dump (blob TagCompressed b64) len server decode. Payload vai MB
+    -> nen gzip truoc khi gui (Win7 upload cham). Best-effort nhu post_extra.
+    Ghi de URL bang [webhook] raw_url trong config.local.toml neu can."""
+    url = (cfg.get("webhook", {}).get("raw_url") or RAW_URL).strip()
+    if not url:
+        return None, ""
+    data = gzip.compress(json.dumps(payload, ensure_ascii=False).encode("utf-8"))
+    hdr = {"Content-Encoding": "gzip"}
+    try:
+        from bridge.updater import _ssl_ctx
+        ctx = _ssl_ctx()
+    except Exception:
+        ctx = None
+    try:
+        return _post_one(url, data, timeout=90, retries=1, context=ctx, headers=hdr)
+    except RuntimeError as e:
+        if "CERTIFICATE" not in str(e).upper():
+            raise
+        unv = ssl.create_default_context()
+        unv.check_hostname = False
+        unv.verify_mode = ssl.CERT_NONE
+        return _post_one(url, data, timeout=90, retries=1, context=unv, headers=hdr)

@@ -125,6 +125,23 @@ def _collect_local(cfg):
     raise RuntimeError(f"collect local that bai: {last}")
 
 
+def collect_rawdump(cfg):
+    """Chay reader o che do DUMP RAW (WINCC_DUMP_RAW=1): tra JSON chua block
+    TagCompressed tho (b64) + ban do ten tag, de service POST len server decode.
+    Chi ho tro mode=local (tram vua chay WinCC vua co internet, vd Dakrosa2).
+    Dump nang hon snapshot thuong -> timeout 150s, 1 lan (khong retry)."""
+    w = cfg["winccbox"]
+    if (w.get("mode") or "").lower() != "local":
+        raise RuntimeError("rawdump chi ho tro mode=local")
+    env = _station_env(cfg)
+    env["WINCC_DUMP_RAW"] = "1"
+    p = subprocess.run([w["python32"], w["reader"]], capture_output=True, text=True,
+                       timeout=150, env=env, encoding="utf-8", errors="replace")
+    if p.returncode == 0 and p.stdout.strip():
+        return json.loads(p.stdout)
+    raise RuntimeError(f"rawdump that bai: {(p.stderr or p.stdout or 'rong')[:200]}")
+
+
 def collect(cfg):
     w = cfg["winccbox"]
     # Che do LOCAL: chay OLE-DB reader ngay tren may nay (khong SSH).
