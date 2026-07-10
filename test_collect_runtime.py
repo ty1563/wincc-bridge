@@ -4,8 +4,15 @@ from bridge.collect import _runtime_probe_args
 
 
 class CollectRuntimeProbeTests(unittest.TestCase):
-    def test_raw_collection_enables_isolated_runtime_probe_by_default(self):
-        self.assertEqual(_runtime_probe_args({}), ["--probe-runtime"])
+    def test_local_raw_collection_enables_isolated_runtime_probe_by_default(self):
+        cfg = {"winccbox": {"mode": "local"}}
+
+        self.assertEqual(_runtime_probe_args(cfg), ["--probe-runtime"])
+
+    def test_remote_raw_collection_disables_runtime_probe_by_default(self):
+        cfg = {"winccbox": {"mode": "remote"}}
+
+        self.assertEqual(_runtime_probe_args(cfg), [])
 
     def test_station_config_can_disable_runtime_probe_without_disabling_rawdump(self):
         cfg = {"station": {"runtime_probe": False}}
