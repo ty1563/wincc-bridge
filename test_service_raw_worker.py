@@ -1,4 +1,5 @@
 import unittest
+from unittest import mock
 
 from bridge import service
 
@@ -65,6 +66,40 @@ class RawShipWorkerTests(unittest.TestCase):
 
     def test_raw_ship_active_is_false_without_worker(self):
         self.assertFalse(service.raw_ship_active())
+
+    def test_due_maintenance_checks_ota_before_starting_raw_job(self):
+        order = []
+
+        result = service.run_due_maintenance(
+            {"station": {"name": "Dakrosa1"}},
+            ota_due=True,
+            raw_due=True,
+            check_update=lambda cfg, log: order.append("ota") or False,
+            raw_starter=lambda cfg: order.append("raw") or True,
+            active_check=lambda: False,
+            log_fn=lambda message: None,
+        )
+
+        self.assertEqual(order, ["ota", "raw"])
+        self.assertTrue(result["ota_checked"])
+        self.assertTrue(result["raw_started"])
+        self.assertFalse(result["updated"])
+
+    def test_successful_ota_does_not_start_an_obsolete_raw_job(self):
+        raw_starter = mock.Mock()
+
+        result = service.run_due_maintenance(
+            {},
+            ota_due=True,
+            raw_due=True,
+            check_update=lambda cfg, log: True,
+            raw_starter=raw_starter,
+            active_check=lambda: False,
+            log_fn=lambda message: None,
+        )
+
+        self.assertTrue(result["updated"])
+        raw_starter.assert_not_called()
 
 
 if __name__ == "__main__":

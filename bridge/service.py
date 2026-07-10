@@ -77,6 +77,29 @@ def raw_ship_active():
     return _raw_thread is not None and _raw_thread.is_alive()
 
 
+def run_due_maintenance(cfg, ota_due, raw_due,
+                        check_update=updater.check_and_update,
+                        raw_starter=start_raw_ship,
+                        active_check=raw_ship_active,
+                        log_fn=log):
+    """Run OTA before raw so a slow/offline station cannot starve updates."""
+    result = {"ota_checked": False, "raw_started": False, "updated": False}
+    if ota_due:
+        if active_check():
+            log_fn("OTA: rawdump dang chay -> doi xong roi cap nhat")
+        else:
+            result["ota_checked"] = True
+            if check_update(cfg, log=log_fn):
+                result["updated"] = True
+                return result
+    if raw_due:
+        if raw_starter(cfg):
+            result["raw_started"] = True
+        else:
+            log_fn("rawdump truoc van dang chay -> khong tao job chong lan")
+    return result
+
+
 def hint(err):
     e = err.lower()
     if "timeout" in e or "timed out" in e:
@@ -157,25 +180,24 @@ def main():
         except Exception as e:
             log(f"snapshot ERR: {e}")
             log(f"  hint: {hint(str(e))}")
-        # RAW DUMP dinh ky (best-effort): loi khong anh huong snapshot/n8n
-        if raw_iv and (time.time() - last_raw) >= raw_iv:
-            if start_raw_ship(cfg):
-                last_raw = time.time()
-            else:
-                log("rawdump truoc van dang chay -> khong tao job chong lan")
-        if ota_on and (time.time() - last_ota) >= ota_iv:
-            # Khong thoat service trong luc daemon thread dang cho subprocess;
-            # tren Windows child co the thanh orphan va job moi chong len sau restart.
-            if raw_ship_active():
-                log("OTA: rawdump dang chay -> doi xong roi cap nhat")
-            else:
+        # OTA is checked before starting another raw job.  On a station whose
+        # snapshot nearly consumes rawship_sec, the opposite order can defer
+        # every OTA indefinitely.
+        try:
+            maintenance = run_due_maintenance(
+                cfg,
+                ota_due=ota_on and (time.time() - last_ota) >= ota_iv,
+                raw_due=bool(raw_iv and (time.time() - last_raw) >= raw_iv),
+            )
+            if maintenance["ota_checked"]:
                 last_ota = time.time()
-                try:
-                    if updater.check_and_update(cfg, log=log):
-                        log("OTA: co code moi -> thoat de NSSM khoi dong lai voi code moi")
-                        sys.exit(0)
-                except Exception as e:
-                    log(f"OTA ERR: {e}")
+            if maintenance["raw_started"]:
+                last_raw = time.time()
+            if maintenance["updated"]:
+                log("OTA: co code moi -> thoat de NSSM khoi dong lai voi code moi")
+                sys.exit(0)
+        except Exception as e:
+            log(f"OTA/maintenance ERR: {e}")
         time.sleep(max(5, snap_iv - (time.time() - t0)))
 
 
