@@ -127,7 +127,7 @@ class RawDumpMultiBlockTests(unittest.TestCase):
         reader["_attach_runtime_probe"](out, probe=probe)
 
         self.assertEqual(out["runtime_probe"]["total_tags"], 1754)
-        self.assertEqual(calls, [{"inventory_limit": 4000, "candidate_limit": 256}])
+        self.assertEqual(calls, [{"inventory_limit": 0, "candidate_limit": 128}])
 
     def test_runtime_probe_failure_never_breaks_raw_archive_payload(self):
         reader = load_reader_namespace()

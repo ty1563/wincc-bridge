@@ -472,7 +472,9 @@ def _attach_runtime_probe(out, probe=None):
     try:
         if probe is None:
             from wincc_runtime import probe_runtime as probe
-        out["runtime_probe"] = probe(inventory_limit=4000, candidate_limit=256)
+        # Raw full endpoint hien doc duoc khong auth: khong ship toan bo process
+        # inventory. Chi gui tap ung vien da loc, du cho nghien cuu va nhe may.
+        out["runtime_probe"] = probe(inventory_limit=0, candidate_limit=128)
     except Exception as e:
         out["runtime_probe"] = {
             "available": False,
