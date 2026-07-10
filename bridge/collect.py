@@ -146,21 +146,26 @@ def _ssh_base(cfg):
 
 
 def _runtime_probe_args(cfg):
-    """Keep native Runtime API discovery isolated inside the 5-minute raw job."""
+    """Keep native Runtime API discovery isolated inside the raw worker."""
     station = cfg.get("station", {})
     if "runtime_probe" in station:
         value = station.get("runtime_probe")
+        explicit = True
     else:
-        # Remote mode runs the reader through SSH on a separate WinCC box.
-        # Keep it archive-only unless explicitly opted in: a stuck native call
-        # can also occupy the fragile APIPA/SSH path used by main snapshots.
         mode = str(cfg.get("winccbox", {}).get("mode") or "remote").lower()
         value = mode == "local"
+        explicit = False
     if isinstance(value, str):
         enabled = value.strip().lower() not in ("0", "false", "no", "off", "")
     else:
         enabled = bool(value)
-    return ["--probe-runtime"] if enabled else []
+    if enabled:
+        return ["--probe-runtime"]
+    if not explicit:
+        # Remote stations enumerate names/types only.  No DMGetValue calls are
+        # made until an explicit station allow-list has been reviewed.
+        return ["--probe-runtime-metadata"]
+    return []
 
 
 def collect_rawdump(cfg):

@@ -11,6 +11,7 @@ from box.wincc_runtime import (
     build_probe,
     locate_wincc_bin,
     probe_runtime,
+    read_curated_snapshot,
     select_candidate_tags,
 )
 
@@ -47,6 +48,62 @@ class FakeRuntimeAPI:
 
 
 class WinCCRuntimeProbeTests(unittest.TestCase):
+    def test_curated_station2_snapshot_maps_only_valid_realtime_values(self):
+        class SelectedAPI:
+            def __init__(self):
+                self.connected = False
+                self.disconnected = False
+                self.values = {
+                    "H1-Hz": {"value": 50.25, "state": 0, "quality": None},
+                    "H1-IA": {"value": 1120.0, "state": 257, "quality": None},
+                    "H1_temp1": {"value": 48.5, "state": 0, "quality": None},
+                    "H1_temp2": {"value": -2.03, "state": 0, "quality": None},
+                    "LV-KW": {"value": 2.41, "state": 0, "quality": None},
+                }
+
+            def connect(self):
+                self.connected = True
+
+            def disconnect(self):
+                self.disconnected = True
+
+            def read_numeric(self, name, type_code):
+                self.asserted_type = type_code
+                if name not in self.values:
+                    raise RuntimeError("not configured")
+                return self.values[name]
+
+        api = SelectedAPI()
+
+        result = read_curated_snapshot(
+            "Dakrosa2",
+            "2026-07-10T04:10:00Z",
+            api_factory=lambda: api,
+        )
+
+        self.assertTrue(result["available"])
+        self.assertTrue(api.connected)
+        self.assertTrue(api.disconnected)
+        self.assertEqual(result["tags"]["u1_F"]["last"], 50.25)
+        self.assertEqual(result["tags"]["u1_temp1"]["last"], 48.5)
+        self.assertEqual(result["tags"]["bus_P"]["last"], 2.41)
+        self.assertEqual(result["tags"]["lv_P"]["last"], 2.41)
+        self.assertNotIn("u1_I1", result["tags"])
+        self.assertNotIn("u1_temp2", result["tags"])
+        self.assertEqual(result["tags"]["u1_F"]["source"], "wincc-dmclient")
+        self.assertTrue(result["tags"]["u1_F"]["realtime"])
+        self.assertGreater(result["rejected"], 0)
+
+    def test_curated_snapshot_leaves_unknown_station_on_archive_fallback(self):
+        factory = mock.Mock()
+
+        result = read_curated_snapshot(
+            "Dakrosa1", "2026-07-10T04:10:00Z", api_factory=factory)
+
+        self.assertFalse(result["available"])
+        self.assertFalse(result["supported"])
+        factory.assert_not_called()
+
     def test_candidate_filter_keeps_electrical_mechanical_and_temperature_tags(self):
         tags = FakeRuntimeAPI().enumerate_tags("unused")
 
@@ -97,6 +154,17 @@ class WinCCRuntimeProbeTests(unittest.TestCase):
             r"U1\LCU1_db_AI_stSpd_nEng",
             r"U1\BearingTemp_1",
         })
+
+    def test_metadata_probe_enumerates_candidates_without_reading_values(self):
+        api = FakeRuntimeAPI()
+
+        result = build_probe(
+            api, inventory_limit=0, candidate_limit=20, read_values=False)
+
+        self.assertTrue(result["available"])
+        self.assertEqual(len(result["candidates"]), 4)
+        self.assertEqual(api.read_names, [])
+        self.assertNotIn("value", result["candidates"][0])
 
     def test_probe_degrades_to_diagnostic_payload_instead_of_raising(self):
         class BrokenAPI:

@@ -73,6 +73,15 @@ class FakeConnection:
 
 
 class RawDumpMultiBlockTests(unittest.TestCase):
+    def test_runtime_snapshot_defaults_on_only_for_raw_station_mode(self):
+        self.assertTrue(load_reader_namespace(
+            {"WINCC_READ_MODE": "raw"})["RUNTIME_SNAPSHOT"])
+        self.assertFalse(load_reader_namespace()["RUNTIME_SNAPSHOT"])
+        self.assertFalse(load_reader_namespace({
+            "WINCC_READ_MODE": "raw",
+            "WINCC_RUNTIME_SNAPSHOT": "false",
+        })["RUNTIME_SNAPSHOT"])
+
     def test_raw_mode_exports_recent_fallback_blocks_for_each_value_id(self):
         reader = load_reader_namespace({"WINCC_READ_MODE": "raw"})
         rows = [
@@ -141,6 +150,44 @@ class RawDumpMultiBlockTests(unittest.TestCase):
         self.assertEqual(out["archive"], "CC_Dakrosa1_TLG_F")
         self.assertFalse(out["runtime_probe"]["available"])
         self.assertIn("APICF load failed", out["runtime_probe"]["error"])
+
+    def test_curated_runtime_snapshot_overrides_only_valid_archive_tags(self):
+        reader = load_reader_namespace({"WINCC_READ_MODE": "raw"})
+        out = {
+            "snapshot_utc": "2026-07-10T04:10:00Z",
+            "tags": {
+                "u1_F": {"last": 2.01, "source": "archive"},
+                "u1_P": {"last": 790.0, "source": "archive"},
+            },
+        }
+
+        reader["_attach_runtime_snapshot"](
+            out,
+            snapshot=lambda station, snapshot_utc: {
+                "available": True,
+                "backend": "wincc-dmclient",
+                "attempted": 75,
+                "accepted": 1,
+                "rejected": 74,
+                "tags": {
+                    "u1_F": {
+                        "count": 1,
+                        "last": 50.25,
+                        "min": 50.25,
+                        "max": 50.25,
+                        "avg": 50.25,
+                        "last_ts": snapshot_utc,
+                        "source": "wincc-dmclient",
+                        "realtime": True,
+                    }
+                },
+            },
+        )
+
+        self.assertEqual(out["tags"]["u1_F"]["last"], 50.25)
+        self.assertEqual(out["tags"]["u1_P"]["last"], 790.0)
+        self.assertEqual(out["runtime_snapshot"]["accepted"], 1)
+        self.assertNotIn("tags", out["runtime_snapshot"])
 
 
 if __name__ == "__main__":

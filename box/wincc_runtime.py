@@ -186,6 +186,84 @@ _EVENT_TOKEN = re.compile(
 )
 
 
+def _station2_curated_specs():
+    """Small, validated Runtime set used by the 30-second snapshot.
+
+    The WinCC archive exposes longer symbolic paths, while DMCLIENT exposes
+    these flat process-tag aliases.  Bounds are deliberately physical rather
+    than merely numeric so a bad state/placeholder never replaces archive
+    fallback data.
+    """
+    specs = []
+    unit_metrics = (
+        ("Hz", "F", 45.0, 55.0),
+        ("IA", "I1", 0.0, 10000.0),
+        ("IB", "I2", 0.0, 10000.0),
+        ("IC", "I3", 0.0, 10000.0),
+        ("Itb", "I_avg", 0.0, 10000.0),
+        ("KVA", "S", 0.0, 10000.0),
+        ("KVAh", "KVAh", 0.0, 1.0e9),
+        ("KVAr", "Q", -10000.0, 10000.0),
+        ("KW", "P", -10000.0, 10000.0),
+        ("KWh", "KWh", 0.0, 1.0e9),
+        ("PF", "PF", -1.05, 1.05),
+        ("Speed", "speed", 0.0, 1000.0),
+        ("UAB", "U12", 0.0, 1000.0),
+        ("UBC", "U23", 0.0, 1000.0),
+        ("UCA", "U31", 0.0, 1000.0),
+        ("Uptb", "U_avg", 0.0, 1000.0),
+    )
+    for unit_number in (1, 2, 3):
+        source_prefix = "H%d" % unit_number
+        key_prefix = "u%d_" % unit_number
+        for source_suffix, key_suffix, low, high in unit_metrics:
+            specs.append({
+                "name": "%s-%s" % (source_prefix, source_suffix),
+                "keys": (key_prefix + key_suffix,),
+                "min": low,
+                "max": high,
+            })
+        for sensor in range(1, 11):
+            specs.append({
+                "name": "%s_temp%d" % (source_prefix, sensor),
+                "keys": ("%stemp%d" % (key_prefix, sensor),),
+                "min": 5.0,
+                "max": 150.0,
+            })
+
+    # LV is the 22 kV/export meter in this project.  Its live P/Q/S values are
+    # MW/MVAr/MVA (matching the existing bus contract), while current is A.
+    # Voltage is retained as lv_* until its project scaling is verified live.
+    bus_metrics = (
+        ("Hz", ("bus_F", "lv_F"), 45.0, 55.0),
+        ("IA", ("bus_I1", "lv_I1"), 0.0, 1000.0),
+        ("IB", ("bus_I2", "lv_I2"), 0.0, 1000.0),
+        ("IC", ("bus_I3", "lv_I3"), 0.0, 1000.0),
+        ("Itb", ("bus_I_avg", "lv_I_avg"), 0.0, 1000.0),
+        ("KVA", ("bus_S", "lv_S"), 0.0, 100.0),
+        ("KVAh", ("bus_KVAh", "lv_KVAh"), 0.0, 1.0e9),
+        ("KVAr", ("bus_Q", "lv_Q"), -100.0, 100.0),
+        ("KW", ("bus_P", "lv_P"), -100.0, 100.0),
+        ("KWh", ("bus_KWh", "lv_KWh"), 0.0, 1.0e9),
+        ("PF", ("bus_PF", "lv_PF"), -1.05, 1.05),
+        ("UAB", ("lv_U12",), 0.0, 50000.0),
+        ("UBC", ("lv_U23",), 0.0, 50000.0),
+        ("UCA", ("lv_U31",), 0.0, 50000.0),
+        ("Uptb", ("lv_U_avg",), 0.0, 50000.0),
+    )
+    for source_suffix, keys, low, high in bus_metrics:
+        specs.append({
+            "name": "LV-%s" % source_suffix,
+            "keys": keys,
+            "min": low,
+            "max": high,
+        })
+    return tuple(specs)
+
+
+STATION2_CURATED_SPECS = _station2_curated_specs()
+
+
 class WinCCRuntimeAPI:
     """Thin adapter over WinCC's external 32-bit DMCLIENT API."""
 
@@ -381,7 +459,8 @@ def select_candidate_tags(tags, limit=512):
     return [item[2] for item in ranked[:max(0, int(limit))]]
 
 
-def build_probe(api, inventory_limit=4000, candidate_limit=512):
+def build_probe(api, inventory_limit=4000, candidate_limit=512,
+                read_values=True):
     """Build a bounded JSON-safe diagnostic payload from a WinCC API adapter."""
     try:
         project = api.runtime_project()
@@ -410,7 +489,7 @@ def build_probe(api, inventory_limit=4000, candidate_limit=512):
                     "type_name": str(type_info.get("name", "")),
                     "type_size": int(type_info.get("size", 0)),
                 })
-                if type_code in NUMERIC_TYPE_CODES:
+                if read_values and type_code in NUMERIC_TYPE_CODES:
                     item.update(api.read_numeric(name, type_code))
             except Exception as exc:
                 item["error"] = str(exc)[:200]
@@ -425,7 +504,7 @@ def build_probe(api, inventory_limit=4000, candidate_limit=512):
 
 
 def probe_runtime(inventory_limit=4000, candidate_limit=512,
-                  api_factory=WinCCRuntimeAPI):
+                  api_factory=WinCCRuntimeAPI, read_values=True):
     """Create the real adapter at the boundary and always return diagnostics."""
     try:
         api = api_factory()
@@ -441,12 +520,118 @@ def probe_runtime(inventory_limit=4000, candidate_limit=512,
             api.connect()
             connected = True
         return build_probe(api, inventory_limit=inventory_limit,
-                           candidate_limit=candidate_limit)
+                           candidate_limit=candidate_limit,
+                           read_values=read_values)
     except Exception as exc:
         return {
             "available": False,
             "backend": "wincc-dmclient",
             "error": str(exc)[:300],
+        }
+    finally:
+        if connected and hasattr(api, "disconnect"):
+            try:
+                api.disconnect()
+            except Exception:
+                pass
+
+
+def _snapshot_stat(value, snapshot_utc):
+    value = float(value)
+    return {
+        "count": 1,
+        "last": value,
+        "min": value,
+        "max": value,
+        "avg": value,
+        "last_ts": str(snapshot_utc),
+        "source": "wincc-dmclient",
+        "realtime": True,
+        "quality": None,
+        "state": 0,
+    }
+
+
+def read_curated_snapshot(station_name, snapshot_utc,
+                          api_factory=WinCCRuntimeAPI, specs=None):
+    """Read an exact, bounded tag allow-list without enumerating the project.
+
+    Archive values remain the caller's fallback.  Only state=0, finite values
+    inside a metric-specific physical range are returned for merging.
+    """
+    station = str(station_name or "").strip().lower()
+    if specs is None:
+        specs = STATION2_CURATED_SPECS if station == "dakrosa2" else ()
+    specs = tuple(specs)
+    if not specs:
+        return {
+            "available": False,
+            "supported": False,
+            "backend": "wincc-dmclient",
+            "attempted": 0,
+            "accepted": 0,
+            "rejected": 0,
+            "tags": {},
+        }
+    try:
+        api = api_factory()
+    except Exception as exc:
+        return {
+            "available": False,
+            "supported": True,
+            "backend": "wincc-dmclient",
+            "error": str(exc)[:300],
+            "attempted": 0,
+            "accepted": 0,
+            "rejected": len(specs),
+            "tags": {},
+        }
+    connected = False
+    tags = {}
+    accepted = 0
+    rejected = 0
+    try:
+        if hasattr(api, "connect"):
+            api.connect()
+            connected = True
+        for spec in specs:
+            try:
+                sample = api.read_numeric(spec["name"], 8)
+                value = float(sample["value"])
+                state = int(sample.get("state", -1))
+                if (state != 0 or not math.isfinite(value) or
+                        value < float(spec["min"]) or
+                        value > float(spec["max"])):
+                    rejected += 1
+                    continue
+                stat = _snapshot_stat(value, snapshot_utc)
+                for key in spec["keys"]:
+                    tags[str(key)] = dict(stat)
+                accepted += 1
+            except Exception:
+                rejected += 1
+        result = {
+            "available": accepted > 0,
+            "supported": True,
+            "backend": "wincc-dmclient",
+            "attempted": len(specs),
+            "accepted": accepted,
+            "rejected": rejected,
+            "tags": tags,
+        }
+        if not accepted:
+            result["error"] = "no curated Runtime values passed validation"
+        return result
+    except Exception as exc:
+        return {
+            "available": False,
+            "supported": True,
+            "backend": "wincc-dmclient",
+            "error": str(exc)[:300],
+            "attempted": len(specs),
+            "accepted": accepted,
+            "rejected": len(specs) - accepted,
+            "tags": {},
         }
     finally:
         if connected and hasattr(api, "disconnect"):

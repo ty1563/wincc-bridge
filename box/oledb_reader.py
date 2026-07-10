@@ -42,10 +42,15 @@ READ_MODE = (_os.environ.get("WINCC_READ_MODE") or "").lower()
 # phan tich offline. Van READ-ONLY (chi SELECT). Bat bang ENV WINCC_DUMP_RAW=1
 # (mode local) HOAC argv --dump-raw (mode remote: SSH KHONG forward env var).
 DUMP_RAW = (_os.environ.get("WINCC_DUMP_RAW") or "") == "1" or "--dump-raw" in _sys.argv
-# Runtime probe la kenh chan doan rieng, chi bat khi service goi raw-dump voi
-# --probe-runtime. Snapshot archive 30s khong bi anh huong neu Native API loi.
+# Runtime probe la kenh chan doan rieng, chi bat trong raw-dump. Snapshot raw
+# co allow-list realtime rieng; neu Native API loi thi van giu gia tri archive.
 PROBE_RUNTIME = ((_os.environ.get("WINCC_RUNTIME_PROBE") or "") == "1" or
-                 "--probe-runtime" in _sys.argv)
+                 "--probe-runtime" in _sys.argv or
+                 "--probe-runtime-metadata" in _sys.argv)
+PROBE_RUNTIME_METADATA_ONLY = "--probe-runtime-metadata" in _sys.argv
+_runtime_snapshot_env = (_os.environ.get("WINCC_RUNTIME_SNAPSHOT") or "").strip().lower()
+RUNTIME_SNAPSHOT = (READ_MODE == "raw" if not _runtime_snapshot_env else
+                    _runtime_snapshot_env not in ("0", "false", "no", "off"))
 WINDOW_MIN = 5
 # Timeout de reader khong treo mai (ADODB mac dinh khong timeout khi Open/Execute).
 CONN_TIMEOUT_SEC = 5
@@ -339,6 +344,10 @@ def _main_raw(out):
         out["tag_errors"] = n_err
     if len(out["tags"]) == 0:
         out["error"] = "RAW: 0 tag doc duoc"
+    # Runtime exact-tag allow-list is fast enough for every snapshot.  Invalid
+    # state/range values are omitted, leaving the archive value untouched.
+    if RUNTIME_SNAPSHOT:
+        _attach_runtime_snapshot(out)
     energy = {}
     for up in ("bus_P", "u1_P", "u2_P", "u3_P"):
         t = out["tags"].get(up)
@@ -467,16 +476,37 @@ def _dump_slow_values(c, db, live_t, hours=48, top=5000):
     return vals
 
 
-def _attach_runtime_probe(out, probe=None):
+def _attach_runtime_probe(out, probe=None, metadata_only=False):
     """Attach bounded process-tag inventory without ever breaking raw archive."""
     try:
         if probe is None:
             from wincc_runtime import probe_runtime as probe
         # Raw full endpoint hien doc duoc khong auth: khong ship toan bo process
         # inventory. Chi gui tap ung vien da loc, du cho nghien cuu va nhe may.
-        out["runtime_probe"] = probe(inventory_limit=0, candidate_limit=128)
+        kwargs = {"inventory_limit": 0, "candidate_limit": 128}
+        if metadata_only:
+            kwargs["read_values"] = False
+        out["runtime_probe"] = probe(**kwargs)
     except Exception as e:
         out["runtime_probe"] = {
+            "available": False,
+            "backend": "wincc-dmclient",
+            "error": str(e)[:300],
+        }
+
+
+def _attach_runtime_snapshot(out, snapshot=None):
+    """Merge validated realtime tags; archive remains the failure fallback."""
+    try:
+        if snapshot is None:
+            from wincc_runtime import read_curated_snapshot as snapshot
+        result = snapshot(STATION_NAME, out.get("snapshot_utc", ""))
+        runtime_tags = result.pop("tags", {})
+        if result.get("available") and isinstance(runtime_tags, dict):
+            out.setdefault("tags", {}).update(runtime_tags)
+        out["runtime_snapshot"] = result
+    except Exception as e:
+        out["runtime_snapshot"] = {
             "available": False,
             "backend": "wincc-dmclient",
             "error": str(e)[:300],
@@ -540,7 +570,7 @@ def _main_rawdump(out):
     except Exception:
         pass
     if PROBE_RUNTIME:
-        _attach_runtime_probe(out)
+        _attach_runtime_probe(out, metadata_only=PROBE_RUNTIME_METADATA_ONLY)
     print(json.dumps(out, ensure_ascii=False, default=str))
 
 

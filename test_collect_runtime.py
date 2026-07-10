@@ -9,10 +9,18 @@ class CollectRuntimeProbeTests(unittest.TestCase):
 
         self.assertEqual(_runtime_probe_args(cfg), ["--probe-runtime"])
 
-    def test_remote_raw_collection_disables_runtime_probe_by_default(self):
+    def test_remote_raw_collection_uses_metadata_only_probe_by_default(self):
         cfg = {"winccbox": {"mode": "remote"}}
 
-        self.assertEqual(_runtime_probe_args(cfg), [])
+        self.assertEqual(_runtime_probe_args(cfg), ["--probe-runtime-metadata"])
+
+    def test_station_config_can_request_full_remote_value_probe(self):
+        cfg = {
+            "winccbox": {"mode": "remote"},
+            "station": {"runtime_probe": True},
+        }
+
+        self.assertEqual(_runtime_probe_args(cfg), ["--probe-runtime"])
 
     def test_station_config_can_disable_runtime_probe_without_disabling_rawdump(self):
         cfg = {"station": {"runtime_probe": False}}
