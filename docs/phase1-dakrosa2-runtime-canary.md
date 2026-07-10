@@ -2,7 +2,7 @@
 
 Ngày triển khai: 2026-07-10
 
-Release: `1.5.12`
+Release cuối Phase 1: `1.5.13`
 Phạm vi: sửa đơn vị năng lượng và kiểm chứng callback realtime trên Dakrosa2.
 
 ## Kết quả cần đạt
@@ -81,6 +81,10 @@ DMConnectW
 Callback và key array phải được giữ reference đến khi Disconnect thành công,
 kể cả khi Start, End hoặc Stop lỗi.
 
+DMCLIENT dùng hidden window để dispatch update. Thread gọi Connect/Subscribe phải
+bơm Windows message queue bằng bounded `PeekMessageW/DispatchMessageW`; nếu
+không, Begin/Start/End vẫn thành công nhưng callback không đến.
+
 ## Quan sát production
 
 Payload Dakrosa2 có thêm trường `runtime_canary`. Trạng thái tốt phải có:
@@ -135,7 +139,7 @@ Rollback nhanh tại Dakrosa2 nếu có quyền máy:
 Rollback qua OTA:
 
 1. Tạo forward-revert cho các commit Phase 1; không rewrite history.
-2. Đặt một version mới khác bản lỗi, ví dụ `1.5.13`, vì updater chỉ so sánh
+2. Đặt một version mới khác bản lỗi, ví dụ `1.5.14`, vì updater chỉ so sánh
    chuỗi bằng/khác chứ không so semver.
 3. Push `main` và theo dõi cả hai trạm đến khi nhận version rollback.
 
@@ -155,12 +159,20 @@ khôi phục checkout/ZIP thủ công nhưng giữ nguyên `config.local.toml`.
 
 ## Verification phát triển
 
-- 64 unit tests liên quan đã qua trước release.
+- 65 unit tests liên quan đã qua trước release.
 - `py_compile` qua cho reader/runtime/supervisor/service.
 - Cú pháp được parse với Python feature version 3.7.
 - `git diff --check` sạch.
 - `test_e2e.py` là live SSH test và hiện không chạy được từ máy phát triển do
   APIPA `169.254.172.61:22` timeout; đây không phải regression unit test.
+
+## Sự kiện trong rollout
+
+- `1.5.12` đã lên Dakrosa2, sửa đúng energy và subscription trả về thành công,
+  nhưng canary timeout sau 15 giây vì owner thread chưa dispatch hidden-window
+  messages. Snapshot 105 tag vẫn hoạt động và không bị ảnh hưởng.
+- `1.5.13` bổ sung message pump có giới hạn cùng regression test; đây là release
+  Phase 1 cần dùng để đánh giá callback thực tế.
 
 ## Phase 2
 
