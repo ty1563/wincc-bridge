@@ -349,6 +349,14 @@ DUMP_MAX_TOTAL = 4 * 1024 * 1024   # tong blob tho toi da ~4MB (b64 ~5.3MB)
 DUMP_MAX_BLOB = 256 * 1024         # bo blob don le > 256KB (bat thuong)
 DUMP_ACTIVE_HOURS = 2              # chi lay tag co block moi trong N gio (tag dang song)
 DUMP_MAX_NAMES = 8000              # tran so dong ban do ten tag
+# Tram provider/remote (Dakrosa1) giu payload cu: 1 block/VID. Tram raw/local
+# (Dakrosa2) lui toi 6 block deadband de tim gia tri moi nhat co that.
+_dump_blocks_default = 6 if READ_MODE == "raw" else 1
+try:
+    DUMP_BLOCKS_PER_VID = max(1, min(6, int(
+        _os.environ.get("WINCC_DUMP_BLOCKS_PER_VID", _dump_blocks_default))))
+except (TypeError, ValueError):
+    DUMP_BLOCKS_PER_VID = _dump_blocks_default
 
 
 def _dump_names(c, db):
@@ -361,9 +369,11 @@ def _dump_names(c, db):
 
 
 def _dump_blocks(c, db, live_t, hours, cap):
-    """Moi ValueID dang hoat dong (Timeend trong `hours` gio) lay 1 block MOI
-    NHAT (ROW_NUMBER co tu SQL Server 2005). Tra (blocks, total_vids, total_bytes,
-    truncated). Blocks sap newest-first nen truncate giu tag song khoe nhat."""
+    """Moi ValueID dang hoat dong lay toi da N block moi nhat de server co the
+    lui qua block deadband (chi header/timestamp, khong co gia tri). Xep rn=1 cua
+    tat ca tag truoc, roi rn=2... de neu cham cap van giu do phu tag hien tai.
+    ROW_NUMBER co tu SQL Server 2005. Tra (blocks, total_vids, total_bytes,
+    truncated); trong tung ValueID, block moi luon dung truoc block cu."""
     try:
         cutoff = fmt(live_t - datetime.timedelta(hours=hours))
     except Exception:
@@ -374,11 +384,12 @@ def _dump_blocks(c, db, live_t, hours, cap):
         total_vids = int(r[0][0]) if r else None
     except Exception:
         total_vids = None
-    sql = (f"SELECT vid, tb, te, ln, bv FROM ("
+    sql = (f"SELECT vid, tb, te, ln, bv, rn FROM ("
            f"SELECT ValueID vid, Timebegin tb, Timeend te, DATALENGTH(BinValues) ln, "
            f"BinValues bv, ROW_NUMBER() OVER (PARTITION BY ValueID ORDER BY Timeend DESC) rn "
            f"FROM [{db}].dbo.TagCompressed WHERE Timeend >= '{cutoff}' "
-           f"AND DATALENGTH(BinValues) > 16) t WHERE rn = 1 ORDER BY te DESC")
+           f"AND DATALENGTH(BinValues) > 16) t WHERE rn <= {DUMP_BLOCKS_PER_VID} "
+           f"ORDER BY rn ASC, te DESC")
     blocks = []
     total = 0
     truncated = False
@@ -484,7 +495,8 @@ def _main_rawdump(out):
                                                     DUMP_MAX_TOTAL)
     out["blocks"] = blocks
     out["total_vids"] = total_vids
-    out["shipped_vids"] = len(blocks)
+    out["shipped_vids"] = len({b["vid"] for b in blocks})
+    out["shipped_blocks"] = len(blocks)
     out["truncated"] = trunc
     out["dump_bytes"] = total
     # TagLogging SLOW (neu co): du lieu o TagUncompressed -> doc TRUC TIEP gia

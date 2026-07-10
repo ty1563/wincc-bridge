@@ -131,6 +131,7 @@ def main():
                 dump = collect.collect_rawdump(cfg)
                 st3, body = poster.post_raw(cfg, dump)
                 log(f"rawdump {dump.get('shipped_vids', 0)}/{dump.get('total_vids', '?')} vid "
+                    f"{dump.get('shipped_blocks', len(dump.get('blocks', [])))} blocks "
                     f"({dump.get('dump_bytes', 0) // 1024}KB) -> HTTP {st3} {body[:80]}")
             except Exception as e:
                 log(f"rawdump loi (bo qua): {str(e)[:150]}")
