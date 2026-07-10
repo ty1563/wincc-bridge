@@ -145,6 +145,16 @@ def _ssh_base(cfg):
     return ssh + [target]
 
 
+def _runtime_probe_args(cfg):
+    """Keep native Runtime API discovery isolated inside the 5-minute raw job."""
+    value = cfg.get("station", {}).get("runtime_probe", True)
+    if isinstance(value, str):
+        enabled = value.strip().lower() not in ("0", "false", "no", "off", "")
+    else:
+        enabled = bool(value)
+    return ["--probe-runtime"] if enabled else []
+
+
 def collect_rawdump(cfg):
     """Chay reader o che do DUMP RAW: tra JSON chua block TagCompressed tho
     (b64) + ban do ten tag, de service POST len server decode.
@@ -156,11 +166,12 @@ def collect_rawdump(cfg):
     if (w.get("mode") or "").lower() == "local":
         env = _station_env(cfg)
         env["WINCC_DUMP_RAW"] = "1"
-        cmd = [w["python32"], w["reader"], "--dump-raw"]
+        cmd = [w["python32"], w["reader"], "--dump-raw"] + _runtime_probe_args(cfg)
         p = subprocess.run(cmd, capture_output=True, text=True, timeout=150,
                            env=env, encoding="utf-8", errors="replace")
     else:
-        cmd = _ssh_base(cfg) + [w["python32"], w["reader"], "--dump-raw"]
+        cmd = (_ssh_base(cfg) + [w["python32"], w["reader"], "--dump-raw"] +
+               _runtime_probe_args(cfg))
         p = subprocess.run(cmd, capture_output=True, text=True, timeout=150,
                            encoding="utf-8", errors="replace")
     if p.returncode == 0 and p.stdout.strip():

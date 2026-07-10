@@ -115,6 +115,33 @@ class RawDumpMultiBlockTests(unittest.TestCase):
         self.assertEqual(total, 40)
         self.assertFalse(truncated)
 
+    def test_runtime_probe_is_bounded_and_attached_to_raw_diagnostics(self):
+        reader = load_reader_namespace()
+        calls = []
+        out = {}
+
+        def probe(**kwargs):
+            calls.append(kwargs)
+            return {"available": True, "total_tags": 1754}
+
+        reader["_attach_runtime_probe"](out, probe=probe)
+
+        self.assertEqual(out["runtime_probe"]["total_tags"], 1754)
+        self.assertEqual(calls, [{"inventory_limit": 4000, "candidate_limit": 256}])
+
+    def test_runtime_probe_failure_never_breaks_raw_archive_payload(self):
+        reader = load_reader_namespace()
+        out = {"archive": "CC_Dakrosa1_TLG_F"}
+
+        def broken_probe(**_kwargs):
+            raise RuntimeError("APICF load failed")
+
+        reader["_attach_runtime_probe"](out, probe=broken_probe)
+
+        self.assertEqual(out["archive"], "CC_Dakrosa1_TLG_F")
+        self.assertFalse(out["runtime_probe"]["available"])
+        self.assertIn("APICF load failed", out["runtime_probe"]["error"])
+
 
 if __name__ == "__main__":
     unittest.main()

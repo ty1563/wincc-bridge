@@ -42,6 +42,10 @@ READ_MODE = (_os.environ.get("WINCC_READ_MODE") or "").lower()
 # phan tich offline. Van READ-ONLY (chi SELECT). Bat bang ENV WINCC_DUMP_RAW=1
 # (mode local) HOAC argv --dump-raw (mode remote: SSH KHONG forward env var).
 DUMP_RAW = (_os.environ.get("WINCC_DUMP_RAW") or "") == "1" or "--dump-raw" in _sys.argv
+# Runtime probe la kenh chan doan rieng, chi bat khi service goi raw-dump voi
+# --probe-runtime. Snapshot archive 30s khong bi anh huong neu Native API loi.
+PROBE_RUNTIME = ((_os.environ.get("WINCC_RUNTIME_PROBE") or "") == "1" or
+                 "--probe-runtime" in _sys.argv)
 WINDOW_MIN = 5
 # Timeout de reader khong treo mai (ADODB mac dinh khong timeout khi Open/Execute).
 CONN_TIMEOUT_SEC = 5
@@ -463,6 +467,20 @@ def _dump_slow_values(c, db, live_t, hours=48, top=5000):
     return vals
 
 
+def _attach_runtime_probe(out, probe=None):
+    """Attach bounded process-tag inventory without ever breaking raw archive."""
+    try:
+        if probe is None:
+            from wincc_runtime import probe_runtime as probe
+        out["runtime_probe"] = probe(inventory_limit=4000, candidate_limit=256)
+    except Exception as e:
+        out["runtime_probe"] = {
+            "available": False,
+            "backend": "wincc-apicf",
+            "error": str(e)[:300],
+        }
+
+
 def _main_rawdump(out):
     """DUMP block TagCompressed tho (base64) + ban do ten tag; server decode.
     Quet CA TagLogging Fast (TLG_F) lan Slow (TLG_S - nhiet do/tan so thuong
@@ -519,6 +537,8 @@ def _main_rawdump(out):
         c.Close()
     except Exception:
         pass
+    if PROBE_RUNTIME:
+        _attach_runtime_probe(out)
     print(json.dumps(out, ensure_ascii=False, default=str))
 
 
