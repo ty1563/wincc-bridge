@@ -174,6 +174,41 @@ khôi phục checkout/ZIP thủ công nhưng giữ nguyên `config.local.toml`.
 - `1.5.13` bổ sung message pump có giới hạn cùng regression test; đây là release
   Phase 1 cần dùng để đánh giá callback thực tế.
 
+## Xác minh production 2026-07-10
+
+Dakrosa2 đã nhận `1.5.13` và giữ nguyên luồng snapshot chính:
+
+```text
+read_mode = runtime
+canonical tags = 105
+u1_MWh_5min = khoảng 0.0656
+u2_MWh_5min = khoảng 0.0694
+u3_MWh_5min = khoảng 0.0683
+```
+
+Callback canary trong cùng session tăng qua hai lần kiểm tra:
+
+```text
+callbacks: 41 -> 142
+items: 164 -> 568
+canary tags: 4/4
+callback_errors: 0
+oversized_callbacks: 0
+last_age_sec: 0.187 -> 0.250
+state: 0
+quality: 192
+```
+
+Kết luận Dakrosa2: Phase 1 đạt tiêu chí callback realtime read-only và không
+làm gián đoạn snapshot chuẩn.
+
+Dakrosa1 tại thời điểm kiểm tra vẫn ở `1.5.11`; payload cuối được nhận lúc
+`2026-07-10T09:24:42.189Z` và đã stale hơn 20 phút. Vì trạm chưa kéo bất kỳ
+commit Phase 1 nào, trạng thái stale này không phát sinh từ canary. Cần kiểm tra
+mạng/service Dakrosa1; sau khi trạm trở lại phải xác minh nó không có trường
+`runtime_canary` và reader legacy vẫn hoạt động trước khi coi fleet rollout hoàn
+tất.
+
 ## Phase 2
 
 Phase 1 chỉ chứng minh callback realtime ổn định. Dashboard web vẫn poll khoảng
