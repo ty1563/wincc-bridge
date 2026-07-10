@@ -1,7 +1,8 @@
 # Dakrosa WinCC Phase 1: callback canary trạm 2
 
-Ngày triển khai: 2026-07-10  
-Release dự kiến: `1.5.12`  
+Ngày triển khai: 2026-07-10
+
+Release: `1.5.12`
 Phạm vi: sửa đơn vị năng lượng và kiểm chứng callback realtime trên Dakrosa2.
 
 ## Kết quả cần đạt
