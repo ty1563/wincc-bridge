@@ -115,15 +115,15 @@ def locate_wincc_bin(explicit=None):
     raise RuntimeError("WinCC bin not found (need apicf.dll and dmclient.dll)")
 
 _NUMERIC_READERS = {
-    1: ("GetTagBitStateQCWait", ctypes.c_int),
-    2: ("GetTagSByteStateQCWait", ctypes.c_byte),
-    3: ("GetTagByteStateQCWait", ctypes.c_ubyte),
-    4: ("GetTagSWordStateQCWait", ctypes.c_short),
-    5: ("GetTagWordStateQCWait", ctypes.c_ushort),
-    6: ("GetTagSDWordStateQCWait", ctypes.c_long),
-    7: ("GetTagDWordStateQCWait", ctypes.c_ulong),
-    8: ("GetTagFloatStateQCWait", ctypes.c_float),
-    9: ("GetTagDoubleStateQCWait", ctypes.c_double),
+    1: ("GetTagBitStateQC", ctypes.c_int),
+    2: ("GetTagSByteStateQC", ctypes.c_byte),
+    3: ("GetTagByteStateQC", ctypes.c_ubyte),
+    4: ("GetTagSWordStateQC", ctypes.c_short),
+    5: ("GetTagWordStateQC", ctypes.c_ushort),
+    6: ("GetTagSDWordStateQC", ctypes.c_long),
+    7: ("GetTagDWordStateQC", ctypes.c_ulong),
+    8: ("GetTagFloatStateQC", ctypes.c_float),
+    9: ("GetTagDoubleStateQC", ctypes.c_double),
 }
 
 _VALUABLE_TOKEN = re.compile(

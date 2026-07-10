@@ -103,7 +103,7 @@ class WinCCRuntimeProbeTests(unittest.TestCase):
 
         read_float = ReadFloat()
         fake_apicf = type("FakeAPICF", (), {
-            "GetTagFloatStateQCWait": read_float,
+            "GetTagFloatStateQC": read_float,
         })()
         api = WinCCRuntimeAPI(dmclient=object(), apicf=fake_apicf, configure=False)
 
@@ -212,7 +212,7 @@ class WinCCRuntimeProbeTests(unittest.TestCase):
                 return math.nan
 
         fake_apicf = type("FakeAPICF", (), {
-            "GetTagFloatStateQCWait": ReadFloat(),
+            "GetTagFloatStateQC": ReadFloat(),
         })()
         api = WinCCRuntimeAPI(dmclient=object(), apicf=fake_apicf, configure=False)
 
