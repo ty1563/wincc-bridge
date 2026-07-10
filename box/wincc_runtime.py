@@ -246,18 +246,23 @@ def _station2_curated_specs():
         ("KW", ("bus_P", "lv_P"), -100.0, 100.0),
         ("KWh", ("bus_KWh", "lv_KWh"), 0.0, 1.0e9),
         ("PF", ("bus_PF", "lv_PF"), -1.05, 1.05),
-        ("UAB", ("lv_U12",), 0.0, 50000.0),
-        ("UBC", ("lv_U23",), 0.0, 50000.0),
-        ("UCA", ("lv_U31",), 0.0, 50000.0),
-        ("Uptb", ("lv_U_avg",), 0.0, 50000.0),
+        ("UAB", ("bus_U12", "lv_U12"), 0.0, 50000.0),
+        ("UBC", ("bus_U23", "lv_U23"), 0.0, 50000.0),
+        ("UCA", ("bus_U31", "lv_U31"), 0.0, 50000.0),
+        ("Uptb", ("bus_U_avg", "lv_U_avg"), 0.0, 50000.0),
     )
     for source_suffix, keys, low, high in bus_metrics:
-        specs.append({
+        spec = {
             "name": "LV-%s" % source_suffix,
             "keys": keys,
             "min": low,
             "max": high,
-        })
+        }
+        if source_suffix == "PF":
+            # This export meter encodes power-flow direction in PF's sign;
+            # canonical cos(phi) is the magnitude, while P/Q retain direction.
+            spec["absolute"] = True
+        specs.append(spec)
     return tuple(specs)
 
 
@@ -598,6 +603,8 @@ def read_curated_snapshot(station_name, snapshot_utc,
             try:
                 sample = api.read_numeric(spec["name"], 8)
                 value = float(sample["value"])
+                if spec.get("absolute"):
+                    value = abs(value)
                 state = int(sample.get("state", -1))
                 if (state != 0 or not math.isfinite(value) or
                         value < float(spec["min"]) or

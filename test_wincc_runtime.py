@@ -59,6 +59,8 @@ class WinCCRuntimeProbeTests(unittest.TestCase):
                     "H1_temp1": {"value": 48.5, "state": 0, "quality": None},
                     "H1_temp2": {"value": -2.03, "state": 0, "quality": None},
                     "LV-KW": {"value": 2.41, "state": 0, "quality": None},
+                    "LV-PF": {"value": -0.999, "state": 0, "quality": None},
+                    "LV-UAB": {"value": 23.8, "state": 0, "quality": None},
                 }
 
             def connect(self):
@@ -88,6 +90,8 @@ class WinCCRuntimeProbeTests(unittest.TestCase):
         self.assertEqual(result["tags"]["u1_temp1"]["last"], 48.5)
         self.assertEqual(result["tags"]["bus_P"]["last"], 2.41)
         self.assertEqual(result["tags"]["lv_P"]["last"], 2.41)
+        self.assertEqual(result["tags"]["bus_PF"]["last"], 0.999)
+        self.assertEqual(result["tags"]["bus_U12"]["last"], 23.8)
         self.assertNotIn("u1_I1", result["tags"])
         self.assertNotIn("u1_temp2", result["tags"])
         self.assertEqual(result["tags"]["u1_F"]["source"], "wincc-dmclient")
