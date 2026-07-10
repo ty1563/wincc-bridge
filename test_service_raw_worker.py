@@ -98,6 +98,20 @@ class RawShipWorkerTests(unittest.TestCase):
         self.assertEqual(payload["read_mode"], "runtime")
         self.assertEqual(payload["version"], "1.5.11")
 
+    def test_one_snapshot_attaches_callback_canary_status_when_available(self):
+        cfg = {"station": {"name": "Dakrosa2"}}
+        snap = {"read_mode": "runtime", "tags": {"u1_P": {"last": 790.0}}}
+        canary = {"event": "heartbeat", "callbacks": 7, "last_age_sec": 0.1}
+
+        with mock.patch.object(service.collect, "collect", return_value=snap), \
+                mock.patch.object(service.collect, "local_version", return_value="1.5.12"), \
+                mock.patch.object(service.runtime_canary, "status", return_value=canary), \
+                mock.patch.object(service.poster, "post", return_value=(200, "ok")), \
+                mock.patch.object(service.poster, "post_extra", return_value=(200, "ok")):
+            payload = service.one_snapshot(cfg)
+
+        self.assertEqual(payload["runtime_canary"], canary)
+
     def test_due_maintenance_checks_ota_before_starting_raw_job(self):
         order = []
 

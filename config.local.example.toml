@@ -10,6 +10,9 @@ url = "https://n8n.svnagentic.site/webhook/<id>?user=1"
 # Tram nay ten gi -> n8n biet phan biet payload cua may nao gui.
 # Neu KHONG dat, reader mac dinh "Dakrosa1" (tuong thich nguoc).
 name = "Dakrosa1"
+# Phase 1 callback canary tu bat CHI khi name=Dakrosa2, mode=local, read_mode=raw.
+# Kill switch tuc thi sau khi restart service:
+# runtime_callback_canary = false
 # WinCC catalog pattern (SQL LIKE): CC[_]<ten>[_]%R (dau _ trong ngoac de escape)
 project_like = "CC[_]Dakrosa1[_]%R"
 # Catalog fallback neu resolve khong ra. Bo trong = reader tu tim.

@@ -1,4 +1,5 @@
 """Service chinh tren may tram: vong lap snapshot + OTA. NSSM boc thanh Windows service."""
+import atexit
 import sys
 import os
 import threading
@@ -10,7 +11,7 @@ try:
 except Exception:
     pass
 
-from bridge import config, collect, poster, updater
+from bridge import config, collect, poster, runtime_canary, updater
 
 # Chu ky gui snapshot (giay). Code la TRAN toi da -> OTA doi duoc ma khong can
 # sua config tren tung may tram. Config [intervals] snapshot_sec chi lam NHANH
@@ -153,6 +154,9 @@ def one_snapshot(cfg, ping=None):
     if ping:
         payload["ping"] = ping
     payload.update(snap)
+    canary_status = runtime_canary.status()
+    if canary_status:
+        payload["runtime_canary"] = canary_status
     if "error" in snap:
         try:
             payload["diag"] = collect.diagnostics(cfg)
@@ -186,6 +190,8 @@ def main():
     if "--once" in sys.argv:
         once(cfg)
         return
+    if runtime_canary.start(cfg, log_fn=log):
+        atexit.register(runtime_canary.stop, log_fn=log)
     snap_iv = effective_snap_iv(cfg)
     ota_iv = int(cfg["intervals"].get("ota_sec", 900))
     ota_on = bool(cfg.get("ota", {}).get("enabled"))
