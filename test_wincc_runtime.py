@@ -1,19 +1,25 @@
 import ctypes
+import contextlib
+import io
 import math
 import os
 import tempfile
+import threading
 import unittest
 from unittest import mock
 
 from box.wincc_runtime import (
+    DMVarUpdateExW,
     DMVarKeyW,
     WinCCRuntimeAPI,
     build_probe,
     locate_wincc_bin,
     probe_runtime,
     read_curated_snapshot,
+    run_callback_canary,
     select_candidate_tags,
 )
+from box import wincc_runtime
 
 
 class FakeRuntimeAPI:
@@ -48,6 +54,247 @@ class FakeRuntimeAPI:
 
 
 class WinCCRuntimeProbeTests(unittest.TestCase):
+    def test_callback_canary_cli_requires_parent_watch_and_exact_modes(self):
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            with self.assertRaises(SystemExit):
+                wincc_runtime._main([
+                    "--callback-canary",
+                    "--station", "Dakrosa2",
+                    "--mode", "local",
+                    "--read-mode", "raw",
+                ])
+
+        self.assertIn("--watch-stdin", stderr.getvalue())
+
+    def test_callback_canary_reports_values_and_cleans_up(self):
+        events = []
+        stop_event = threading.Event()
+
+        class Subscription:
+            taid = 44
+            stats = {"callbacks": 1, "items": 2, "errors": 0, "oversized": 0}
+
+        class API:
+            def connect(self):
+                self.connected = True
+
+            def start_updates(self, names, callback, cycle):
+                self.names = tuple(names)
+                self.cycle = cycle
+                callback({
+                    "LV-KW": {
+                        "value": 2.41, "state": 0, "quality": 192,
+                        "variant_type": 4,
+                    },
+                    "H1-KW": {
+                        "value": 791.5, "state": 0, "quality": 192,
+                        "variant_type": 4,
+                    },
+                })
+                return Subscription()
+
+            def stop_updates(self, subscription):
+                self.stopped = subscription.taid
+
+            def disconnect(self):
+                self.disconnected = True
+
+        api = API()
+
+        def emit(event):
+            events.append(event)
+            if event.get("event") == "heartbeat":
+                stop_event.set()
+
+        run_callback_canary(
+            emit,
+            stop_event,
+            api_factory=lambda: api,
+            heartbeat_sec=0.01,
+            callback_timeout_sec=1.0,
+            poll_sec=0.01,
+        )
+
+        event_names = [event["event"] for event in events]
+        self.assertEqual(api.names, ("LV-KW", "H1-KW", "H2-KW", "H3-KW"))
+        self.assertEqual(api.cycle, 2)
+        self.assertIn("first_callback", event_names)
+        self.assertIn("heartbeat", event_names)
+        self.assertEqual(events[event_names.index("heartbeat")]["tags"]["LV-KW"]["quality"], 192)
+        self.assertEqual(api.stopped, 44)
+        self.assertTrue(api.disconnected)
+
+    def test_callback_structures_match_packed_win32_header_layout(self):
+        self.assertEqual(ctypes.sizeof(DMVarKeyW), 270)
+        self.assertEqual(ctypes.sizeof(DMVarUpdateExW), 560)
+        self.assertEqual(DMVarUpdateExW.dmTypeRef.offset, 0)
+        self.assertEqual(DMVarUpdateExW.dmVarKey.offset, 266)
+        self.assertEqual(DMVarUpdateExW.dmValue.offset, 536)
+        self.assertEqual(DMVarUpdateExW.dwState.offset, 552)
+        self.assertEqual(DMVarUpdateExW.dwQualityCode.offset, 556)
+
+    def test_ctypes_adapter_runs_callback_subscription_lifecycle(self):
+        order = []
+        batches = []
+
+        class Begin:
+            def __call__(self, taid_ptr, error):
+                order.append("begin")
+                taid_ptr._obj.value = 73
+                return 1
+
+        class Start:
+            def __call__(self, taid, keys, items, cycle, callback, user, error):
+                order.append("start")
+                self.taid = taid
+                self.names = [keys[index].szName for index in range(items)]
+                self.cycle = cycle
+                updates = (DMVarUpdateExW * 2)()
+                for index, (name, value) in enumerate((("LV-KW", 2.41), ("H1-KW", 791.5))):
+                    updates[index].dmVarKey.szName = name
+                    updates[index].dmValue.vt = 4
+                    updates[index].dmValue.fltVal = value
+                    updates[index].dwState = 0
+                    updates[index].dwQualityCode = 192
+                self.callback_result = callback(taid, updates, 2, user)
+                return 1
+
+        class End:
+            def __call__(self, taid, error):
+                order.append("end")
+                return 1
+
+        class Stop:
+            def __call__(self, taid, error):
+                order.append("stop")
+                self.taid = taid
+                return 1
+
+        start = Start()
+        stop = Stop()
+        fake_dm = type("FakeDM", (), {
+            "DMBeginStartVarUpdateW": Begin(),
+            "DMStartVarUpdateExW": start,
+            "DMEndStartVarUpdateW": End(),
+            "DMStopVarUpdateW": stop,
+        })()
+        api = WinCCRuntimeAPI(dmclient=fake_dm, configure=False)
+
+        subscription = api.start_updates(
+            ["LV-KW", "H1-KW"], batches.append, cycle=2)
+
+        self.assertEqual(order, ["begin", "start", "end"])
+        self.assertEqual(start.taid, 73)
+        self.assertEqual(start.names, ["LV-KW", "H1-KW"])
+        self.assertEqual(start.cycle, 2)
+        self.assertEqual(start.callback_result, 1)
+        self.assertAlmostEqual(batches[0]["LV-KW"]["value"], 2.41, places=5)
+        self.assertEqual(batches[0]["H1-KW"]["quality"], 192)
+
+        api.stop_updates(subscription)
+
+        self.assertEqual(order, ["begin", "start", "end", "stop"])
+        self.assertEqual(stop.taid, 73)
+
+    def test_subscription_stops_taid_when_end_fails(self):
+        order = []
+
+        class Begin:
+            def __call__(self, taid_ptr, error):
+                order.append("begin")
+                taid_ptr._obj.value = 91
+                return 1
+
+        class Start:
+            def __call__(self, *args):
+                order.append("start")
+                return 1
+
+        class End:
+            def __call__(self, taid, error):
+                order.append("end")
+                error._obj.szErrorText = "commit failed"
+                return 0
+
+        class Stop:
+            def __call__(self, taid, error):
+                order.append("stop")
+                return 1
+
+        fake_dm = type("FakeDM", (), {
+            "DMBeginStartVarUpdateW": Begin(),
+            "DMStartVarUpdateExW": Start(),
+            "DMEndStartVarUpdateW": End(),
+            "DMStopVarUpdateW": Stop(),
+        })()
+        api = WinCCRuntimeAPI(dmclient=fake_dm, configure=False)
+
+        with self.assertRaisesRegex(RuntimeError, "commit failed"):
+            api.start_updates(["LV-KW"], lambda batch: None, cycle=2)
+
+        self.assertEqual(order, ["begin", "start", "end", "stop"])
+        self.assertEqual(len(api._retired_subscriptions), 1)
+        self.assertIsNotNone(api._retired_subscriptions[0].callback)
+
+    def test_disconnect_failure_keeps_callback_references_pinned(self):
+        class Disconnect:
+            def __call__(self, error):
+                error._obj.szErrorText = "disconnect failed"
+                return 0
+
+        fake_dm = type("FakeDM", (), {"DMDisConnectW": Disconnect()})()
+        api = WinCCRuntimeAPI(dmclient=fake_dm, configure=False)
+        pinned = object()
+        api._connected = True
+        api._retired_subscriptions.append(pinned)
+
+        with self.assertRaisesRegex(RuntimeError, "disconnect failed"):
+            api.disconnect()
+
+        self.assertTrue(api._connected)
+        self.assertEqual(api._retired_subscriptions, [pinned])
+
+    def test_callback_contains_consumer_exceptions(self):
+        class Begin:
+            def __call__(self, taid_ptr, error):
+                taid_ptr._obj.value = 17
+                return 1
+
+        class Start:
+            def __call__(self, taid, keys, items, cycle, callback, user, error):
+                update = DMVarUpdateExW()
+                update.dmVarKey.szName = "LV-KW"
+                update.dmValue.vt = 4
+                update.dmValue.fltVal = 2.41
+                update.dwState = 0
+                update.dwQualityCode = 192
+                self.result = callback(taid, ctypes.pointer(update), 1, user)
+                return 1
+
+        class Success:
+            def __call__(self, *args):
+                return 1
+
+        start = Start()
+        fake_dm = type("FakeDM", (), {
+            "DMBeginStartVarUpdateW": Begin(),
+            "DMStartVarUpdateExW": start,
+            "DMEndStartVarUpdateW": Success(),
+            "DMStopVarUpdateW": Success(),
+        })()
+        api = WinCCRuntimeAPI(dmclient=fake_dm, configure=False)
+
+        subscription = api.start_updates(
+            ["LV-KW"],
+            lambda batch: (_ for _ in ()).throw(RuntimeError("consumer failed")),
+            cycle=2,
+        )
+
+        self.assertEqual(start.result, 1)
+        self.assertEqual(subscription.stats["errors"], 1)
+        api.stop_updates(subscription)
+
     def test_curated_station2_snapshot_maps_only_valid_realtime_values(self):
         class SelectedAPI:
             def __init__(self):
@@ -387,6 +634,32 @@ class WinCCRuntimeProbeTests(unittest.TestCase):
         self.assertEqual(connect.app_name, "wincc-bridge")
         self.assertIsNotNone(connect.callback)
         self.assertTrue(disconnect.called)
+
+    def test_ctypes_adapter_uses_distinct_canary_application_name(self):
+        class Connect:
+            def __call__(self, app_name, callback, user, error):
+                self.app_name = app_name
+                return 1
+
+        class Disconnect:
+            def __call__(self, error):
+                return 1
+
+        connect = Connect()
+        fake_dm = type("FakeDM", (), {
+            "DMConnectW": connect,
+            "DMDisConnectW": Disconnect(),
+        })()
+        api = WinCCRuntimeAPI(
+            dmclient=fake_dm,
+            configure=False,
+            application_name="wincc-bridge-canary",
+        )
+
+        api.connect()
+        api.disconnect()
+
+        self.assertEqual(connect.app_name, "wincc-bridge-canary")
 
 
 if __name__ == "__main__":

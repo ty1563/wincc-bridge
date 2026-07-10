@@ -1,13 +1,19 @@
-"""Read-only WinCC Runtime tag discovery and value sampling.
+"""Read-only WinCC Runtime tag discovery, sampling, and callback canary.
 
 The public helpers in this module deliberately accept an injected API object so
 the selection and payload logic can be tested without WinCC or 32-bit Python.
 """
+import argparse
 import ctypes
+import datetime
+import json
 import math
 import ntpath
 import os
 import re
+import sys
+import threading
+import time
 
 
 NUMERIC_TYPE_CODES = frozenset(range(1, 10))
@@ -32,7 +38,9 @@ class DMVarKeyW(ctypes.Structure):
         ("dwKeyType", ctypes.c_ulong),
         ("dwID", ctypes.c_ulong),
         ("szName", ctypes.c_wchar * (MAX_DM_NAME + 1)),
-        ("lpvUserData", ctypes.c_void_p),
+        # This module only loads WinCC from 32-bit Python.  Keep LPVOID fixed
+        # at its Win32 width so the public packed ABI is testable on x64 hosts.
+        ("lpvUserData", ctypes.c_uint32),
     ]
 
 
@@ -85,6 +93,17 @@ class DMVarUpdateW(ctypes.Structure):
     ]
 
 
+class DMVarUpdateExW(ctypes.Structure):
+    _pack_ = 1
+    _fields_ = [
+        ("dmTypeRef", DMTypeRefW),
+        ("dmVarKey", DMVarKeyW),
+        ("dmValue", Variant),
+        ("dwState", ctypes.c_uint32),
+        ("dwQualityCode", ctypes.c_uint32),
+    ]
+
+
 DMEnumVarProcW = ctypes.CFUNCTYPE(
     ctypes.c_int,
     ctypes.POINTER(DMVarKeyW),
@@ -98,6 +117,24 @@ DMNotifyProcW = ctypes.CFUNCTYPE(
     ctypes.c_ulong,
     ctypes.c_void_p,
 )
+DMNotifyVariableExProcW = ctypes.CFUNCTYPE(
+    ctypes.c_int,
+    ctypes.c_uint32,
+    ctypes.POINTER(DMVarUpdateExW),
+    ctypes.c_uint32,
+    ctypes.c_void_p,
+)
+
+
+class DMVarSubscription:
+    """Pins WinCC callback memory until Stop and Disconnect have completed."""
+
+    def __init__(self, taid, keys, callback, stats):
+        self.taid = int(taid)
+        self.keys = keys
+        self.callback = callback
+        self.stats = stats
+        self.active = False
 
 
 def _registry_install_paths():
@@ -267,12 +304,14 @@ def _station2_curated_specs():
 
 
 STATION2_CURATED_SPECS = _station2_curated_specs()
+CALLBACK_CANARY_TAGS = ("LV-KW", "H1-KW", "H2-KW", "H3-KW")
 
 
 class WinCCRuntimeAPI:
     """Thin adapter over WinCC's external 32-bit DMCLIENT API."""
 
-    def __init__(self, dmclient=None, configure=True, bin_dir=None):
+    def __init__(self, dmclient=None, configure=True, bin_dir=None,
+                 application_name="wincc-bridge"):
         self._dll_dir_handle = None
         if dmclient is None:
             if ctypes.sizeof(ctypes.c_void_p) != 4:
@@ -285,8 +324,11 @@ class WinCCRuntimeAPI:
                 ctypes.windll.kernel32.SetDllDirectoryW(str(bin_dir))
             dmclient = ctypes.WinDLL(os.path.join(bin_dir, "dmclient.dll"))
         self.dmclient = dmclient
+        self._application_name = str(application_name)
         self._connected = False
         self._notify_callback = None
+        self._subscriptions = []
+        self._retired_subscriptions = []
         if configure:
             self._configure_dmclient()
 
@@ -324,6 +366,24 @@ class WinCCRuntimeAPI:
             ctypes.POINTER(DMVarKeyW), ctypes.c_ulong,
             ctypes.POINTER(DMVarUpdateW), ctypes.POINTER(CMNErrorW),
         ]
+        begin_updates = self.dmclient.DMBeginStartVarUpdateW
+        begin_updates.restype = ctypes.c_int
+        begin_updates.argtypes = [
+            ctypes.POINTER(ctypes.c_uint32), ctypes.POINTER(CMNErrorW),
+        ]
+        start_updates = self.dmclient.DMStartVarUpdateExW
+        start_updates.restype = ctypes.c_int
+        start_updates.argtypes = [
+            ctypes.c_uint32, ctypes.POINTER(DMVarKeyW), ctypes.c_uint32,
+            ctypes.c_uint32, DMNotifyVariableExProcW, ctypes.c_void_p,
+            ctypes.POINTER(CMNErrorW),
+        ]
+        end_updates = self.dmclient.DMEndStartVarUpdateW
+        end_updates.restype = ctypes.c_int
+        end_updates.argtypes = [ctypes.c_uint32, ctypes.POINTER(CMNErrorW)]
+        stop_updates = self.dmclient.DMStopVarUpdateW
+        stop_updates.restype = ctypes.c_int
+        stop_updates.argtypes = [ctypes.c_uint32, ctypes.POINTER(CMNErrorW)]
 
     def connect(self):
         @DMNotifyProcW
@@ -332,7 +392,7 @@ class WinCCRuntimeAPI:
 
         error = CMNErrorW()
         ok = self.dmclient.DMConnectW(
-            "wincc-bridge", notify, None, ctypes.byref(error))
+            self._application_name, notify, None, ctypes.byref(error))
         if not ok:
             self._raise_dm_error("DMConnectW", error)
         self._notify_callback = notify
@@ -341,12 +401,19 @@ class WinCCRuntimeAPI:
     def disconnect(self):
         if not self._connected:
             return
+        for subscription in list(self._subscriptions):
+            try:
+                self.stop_updates(subscription)
+            except Exception:
+                pass
         error = CMNErrorW()
         ok = self.dmclient.DMDisConnectW(ctypes.byref(error))
-        self._connected = False
-        self._notify_callback = None
         if not ok:
             self._raise_dm_error("DMDisConnectW", error)
+        self._connected = False
+        self._notify_callback = None
+        self._subscriptions = []
+        self._retired_subscriptions = []
 
     def read_numeric(self, name, type_code):
         try:
@@ -413,6 +480,108 @@ class WinCCRuntimeAPI:
             except (TypeError, ValueError):
                 continue
         return result
+
+    def start_updates(self, names, on_updates, cycle=2):
+        """Subscribe to exact numeric names through the public Ex callback API."""
+        names = [str(name) for name in names]
+        if not names or len(names) > 256:
+            raise ValueError("WinCC subscription requires 1..256 names")
+        cycle = int(cycle)
+        if cycle < 0 or cycle >= 16:
+            raise ValueError("WinCC update cycle must be an index from 0 to 15")
+        if not callable(on_updates):
+            raise TypeError("on_updates must be callable")
+
+        taid = ctypes.c_uint32()
+        error = CMNErrorW()
+        ok = self.dmclient.DMBeginStartVarUpdateW(
+            ctypes.byref(taid), ctypes.byref(error))
+        if not ok or not taid.value:
+            self._raise_dm_error("DMBeginStartVarUpdateW", error)
+
+        keys = (DMVarKeyW * len(names))()
+        expected = set(names)
+        for index, name in enumerate(names):
+            keys[index].dwKeyType = 2
+            keys[index].szName = name
+        stats = {"callbacks": 0, "items": 0, "errors": 0, "oversized": 0}
+
+        @DMNotifyVariableExProcW
+        def receive(_taid, updates, items, _user):
+            try:
+                stats["callbacks"] += 1
+                stats["items"] += int(items)
+                if not updates:
+                    return 1
+                safe_items = min(int(items), len(names))
+                if int(items) > len(names):
+                    stats["oversized"] += 1
+                batch = {}
+                for index in range(safe_items):
+                    try:
+                        update = updates[index]
+                        name = str(update.dmVarKey.szName or "")
+                        if name not in expected:
+                            continue
+                        sample = self._numeric_update(name, update)
+                        sample["quality"] = int(update.dwQualityCode)
+                        sample["variant_type"] = int(update.dmValue.vt) & 0x0FFF
+                        batch[name] = sample
+                    except Exception:
+                        stats["errors"] += 1
+                if batch:
+                    on_updates(batch)
+            except BaseException:
+                # Never let Python exceptions cross WinCC's native callback ABI.
+                stats["errors"] += 1
+            return 1
+
+        subscription = DMVarSubscription(taid.value, keys, receive, stats)
+        # Start/End can still leave a late native callback.  Pin first, and
+        # release only after DMDisConnectW succeeds.
+        self._retired_subscriptions.append(subscription)
+        started = False
+        try:
+            error = CMNErrorW()
+            ok = self.dmclient.DMStartVarUpdateExW(
+                taid.value, keys, len(names), cycle,
+                receive, None, ctypes.byref(error))
+            if not ok:
+                self._raise_dm_error("DMStartVarUpdateExW", error)
+            started = True
+            error = CMNErrorW()
+            ok = self.dmclient.DMEndStartVarUpdateW(
+                taid.value, ctypes.byref(error))
+            if not ok:
+                self._raise_dm_error("DMEndStartVarUpdateW", error)
+        except Exception:
+            if started or taid.value:
+                try:
+                    self._stop_taid(taid.value)
+                except Exception:
+                    pass
+            raise
+
+        self._retired_subscriptions.remove(subscription)
+        subscription.active = True
+        self._subscriptions.append(subscription)
+        return subscription
+
+    def _stop_taid(self, taid):
+        error = CMNErrorW()
+        ok = self.dmclient.DMStopVarUpdateW(int(taid), ctypes.byref(error))
+        if not ok:
+            self._raise_dm_error("DMStopVarUpdateW", error)
+
+    def stop_updates(self, subscription):
+        if not subscription or not subscription.active:
+            return
+        self._stop_taid(subscription.taid)
+        subscription.active = False
+        if subscription in self._subscriptions:
+            self._subscriptions.remove(subscription)
+        # A late callback may race Stop.  Release these only after Disconnect.
+        self._retired_subscriptions.append(subscription)
 
     @staticmethod
     def _raise_dm_error(operation, error):
@@ -692,3 +861,181 @@ def read_curated_snapshot(station_name, snapshot_utc,
                 api.disconnect()
             except Exception:
                 pass
+
+
+def _utc_now():
+    return (datetime.datetime.now(datetime.timezone.utc)
+            .isoformat().replace("+00:00", "Z"))
+
+
+def run_callback_canary(emit, stop_event, api_factory=None,
+                        heartbeat_sec=5.0, callback_timeout_sec=15.0,
+                        poll_sec=1.0):
+    """Observe four Dakrosa2 power tags without changing snapshot values."""
+    session = "%s-%s" % (os.getpid(), int(time.time()))
+    state_lock = threading.Lock()
+    tag_state = {}
+    callback_state = {
+        "last_utc": None,
+        "last_monotonic": None,
+        "first_latency_ms": None,
+    }
+    started_at = time.monotonic()
+    api = None
+    subscription = None
+    connected = False
+    emit({
+        "event": "start",
+        "session": session,
+        "tags_requested": list(CALLBACK_CANARY_TAGS),
+        "cycle_index": 2,
+        "cycle_ms": 500,
+    })
+
+    def accept(batch):
+        now_utc = _utc_now()
+        now_mono = time.monotonic()
+        with state_lock:
+            if callback_state["last_monotonic"] is None:
+                callback_state["first_latency_ms"] = round(
+                    (now_mono - started_at) * 1000.0, 1)
+            callback_state["last_utc"] = now_utc
+            callback_state["last_monotonic"] = now_mono
+            for name, sample in batch.items():
+                previous = tag_state.get(name, {})
+                tag_state[name] = {
+                    "value": sample.get("value"),
+                    "state": sample.get("state"),
+                    "quality": sample.get("quality"),
+                    "variant_type": sample.get("variant_type"),
+                    "count": int(previous.get("count", 0)) + 1,
+                    "last_utc": now_utc,
+                }
+
+    try:
+        if api_factory is None:
+            api = WinCCRuntimeAPI(application_name="wincc-bridge-canary")
+        else:
+            api = api_factory()
+        api.connect()
+        connected = True
+        emit({"event": "connected", "session": session})
+        subscription = api.start_updates(
+            CALLBACK_CANARY_TAGS, accept, cycle=2)
+        emit({
+            "event": "subscribed",
+            "session": session,
+            "taid": subscription.taid,
+            "tags_requested": len(CALLBACK_CANARY_TAGS),
+        })
+        first_reported = False
+        last_heartbeat = 0.0
+        while not stop_event.wait(max(0.01, float(poll_sec))):
+            now = time.monotonic()
+            with state_lock:
+                last_mono = callback_state["last_monotonic"]
+                last_utc = callback_state["last_utc"]
+                first_latency = callback_state["first_latency_ms"]
+                tags = {name: dict(value) for name, value in tag_state.items()}
+            if last_mono is not None and not first_reported:
+                emit({
+                    "event": "first_callback",
+                    "session": session,
+                    "first_latency_ms": first_latency,
+                    "tags_seen": len(tags),
+                })
+                first_reported = True
+            age = None if last_mono is None else max(0.0, now - last_mono)
+            if now - last_heartbeat >= max(0.01, float(heartbeat_sec)):
+                emit({
+                    "event": "heartbeat",
+                    "session": session,
+                    "callbacks": subscription.stats["callbacks"],
+                    "items": subscription.stats["items"],
+                    "callback_errors": subscription.stats["errors"],
+                    "oversized_callbacks": subscription.stats["oversized"],
+                    "last_callback_utc": last_utc,
+                    "last_age_sec": None if age is None else round(age, 3),
+                    "tags": tags,
+                })
+                last_heartbeat = now
+            if now - started_at > callback_timeout_sec and (
+                    last_mono is None or age > callback_timeout_sec):
+                raise RuntimeError("WinCC callback timeout")
+    finally:
+        if subscription is not None and api is not None:
+            try:
+                api.stop_updates(subscription)
+                emit({"event": "stop", "session": session, "ok": True})
+            except Exception as exc:
+                emit({
+                    "event": "stop",
+                    "session": session,
+                    "ok": False,
+                    "error": str(exc)[:200],
+                })
+        if connected and api is not None:
+            try:
+                api.disconnect()
+                emit({"event": "disconnect", "session": session, "ok": True})
+            except Exception as exc:
+                emit({
+                    "event": "disconnect",
+                    "session": session,
+                    "ok": False,
+                    "error": str(exc)[:200],
+                })
+
+
+def _watch_parent_stdin(stop_event):
+    try:
+        sys.stdin.buffer.read(1)
+    except Exception:
+        pass
+    stop_event.set()
+
+
+def _main(argv=None):
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--callback-canary", action="store_true")
+    parser.add_argument("--station", default="")
+    parser.add_argument("--mode", default="")
+    parser.add_argument("--read-mode", default="")
+    parser.add_argument("--watch-stdin", action="store_true")
+    args = parser.parse_args(argv)
+    if not args.callback_canary:
+        parser.error("only --callback-canary is supported when run directly")
+    if str(args.station).strip().lower() != "dakrosa2":
+        parser.error("callback canary is restricted to Dakrosa2")
+    if str(args.mode).strip().lower() != "local":
+        parser.error("callback canary requires local WinCC mode")
+    if str(args.read_mode).strip().lower() != "raw":
+        parser.error("callback canary requires raw snapshot mode")
+    if not args.watch_stdin:
+        parser.error("callback canary requires --watch-stdin")
+    stop_event = threading.Event()
+    if args.watch_stdin:
+        watcher = threading.Thread(
+            target=_watch_parent_stdin, args=(stop_event,), daemon=True)
+        watcher.start()
+
+    def emit(payload):
+        print(json.dumps(payload, ensure_ascii=False), flush=True)
+
+    try:
+        run_callback_canary(emit, stop_event)
+        return 0
+    except KeyboardInterrupt:
+        stop_event.set()
+        return 0
+    except Exception as exc:
+        emit({
+            "event": "error",
+            "error_type": type(exc).__name__,
+            "error": str(exc)[:300],
+        })
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(_main())
