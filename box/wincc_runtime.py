@@ -50,6 +50,14 @@ DMEnumVarProcW = ctypes.CFUNCTYPE(
     ctypes.POINTER(DMVarKeyW),
     ctypes.c_void_p,
 )
+DMNotifyProcW = ctypes.CFUNCTYPE(
+    ctypes.c_int,
+    ctypes.c_ulong,
+    ctypes.c_ulong,
+    ctypes.POINTER(ctypes.c_ubyte),
+    ctypes.c_ulong,
+    ctypes.c_void_p,
+)
 
 
 def _registry_install_paths():
@@ -151,11 +159,22 @@ class WinCCRuntimeAPI:
             apicf = ctypes.CDLL(os.path.join(bin_dir, "apicf.dll"))
         self.dmclient = dmclient
         self.apicf = apicf
+        self._connected = False
+        self._notify_callback = None
         if configure:
             self._configure_dmclient()
             self._configure_readers()
 
     def _configure_dmclient(self):
+        connect = self.dmclient.DMConnectW
+        connect.restype = ctypes.c_int
+        connect.argtypes = [
+            ctypes.c_wchar_p, DMNotifyProcW, ctypes.c_void_p,
+            ctypes.POINTER(CMNErrorW),
+        ]
+        disconnect = self.dmclient.DMDisConnectW
+        disconnect.restype = ctypes.c_int
+        disconnect.argtypes = [ctypes.POINTER(CMNErrorW)]
         runtime_project = self.dmclient.DMGetRuntimeProjectW
         runtime_project.restype = ctypes.c_int
         runtime_project.argtypes = [
@@ -174,6 +193,29 @@ class WinCCRuntimeAPI:
             ctypes.c_wchar_p, ctypes.POINTER(DMVarKeyW), ctypes.c_ulong,
             ctypes.POINTER(DMTypeRefW), ctypes.POINTER(CMNErrorW),
         ]
+
+    def connect(self):
+        @DMNotifyProcW
+        def notify(_notify_class, _notify_code, _data, _items, _user):
+            return 1
+
+        error = CMNErrorW()
+        ok = self.dmclient.DMConnectW(
+            "wincc-bridge", notify, None, ctypes.byref(error))
+        if not ok:
+            self._raise_dm_error("DMConnectW", error)
+        self._notify_callback = notify
+        self._connected = True
+
+    def disconnect(self):
+        if not self._connected:
+            return
+        error = CMNErrorW()
+        ok = self.dmclient.DMDisConnectW(ctypes.byref(error))
+        self._connected = False
+        self._notify_callback = None
+        if not ok:
+            self._raise_dm_error("DMDisConnectW", error)
 
     def _configure_readers(self):
         for function_name, result_type in _NUMERIC_READERS.values():
@@ -340,5 +382,22 @@ def probe_runtime(inventory_limit=4000, candidate_limit=512,
             "backend": "wincc-apicf",
             "error": str(exc)[:300],
         }
-    return build_probe(api, inventory_limit=inventory_limit,
-                       candidate_limit=candidate_limit)
+    connected = False
+    try:
+        if hasattr(api, "connect"):
+            api.connect()
+            connected = True
+        return build_probe(api, inventory_limit=inventory_limit,
+                           candidate_limit=candidate_limit)
+    except Exception as exc:
+        return {
+            "available": False,
+            "backend": "wincc-apicf",
+            "error": str(exc)[:300],
+        }
+    finally:
+        if connected and hasattr(api, "disconnect"):
+            try:
+                api.disconnect()
+            except Exception:
+                pass

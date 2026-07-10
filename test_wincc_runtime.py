@@ -195,10 +195,16 @@ class WinCCRuntimeProbeTests(unittest.TestCase):
             WinCCRuntimeAPI()
 
     def test_public_probe_accepts_factory_for_safe_boundary_testing(self):
-        result = probe_runtime(api_factory=FakeRuntimeAPI, candidate_limit=2)
+        api = FakeRuntimeAPI()
+        api.connect = mock.Mock()
+        api.disconnect = mock.Mock()
+
+        result = probe_runtime(api_factory=lambda: api, candidate_limit=2)
 
         self.assertTrue(result["available"])
         self.assertEqual(len(result["candidates"]), 2)
+        api.connect.assert_called_once_with()
+        api.disconnect.assert_called_once_with()
 
     def test_ctypes_adapter_rejects_non_finite_values_before_json(self):
         class ReadFloat:
@@ -212,6 +218,33 @@ class WinCCRuntimeProbeTests(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "non-finite"):
             api.read_numeric("BadFloat", 8)
+
+    def test_ctypes_adapter_connects_and_disconnects_data_manager(self):
+        class Connect:
+            def __call__(self, app_name, callback, user, error):
+                self.app_name = app_name
+                self.callback = callback
+                return 1
+
+        class Disconnect:
+            def __call__(self, error):
+                self.called = True
+                return 1
+
+        connect = Connect()
+        disconnect = Disconnect()
+        fake_dm = type("FakeDM", (), {
+            "DMConnectW": connect,
+            "DMDisConnectW": disconnect,
+        })()
+        api = WinCCRuntimeAPI(dmclient=fake_dm, apicf=object(), configure=False)
+
+        api.connect()
+        api.disconnect()
+
+        self.assertEqual(connect.app_name, "wincc-bridge")
+        self.assertIsNotNone(connect.callback)
+        self.assertTrue(disconnect.called)
 
 
 if __name__ == "__main__":
