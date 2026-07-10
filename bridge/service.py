@@ -100,6 +100,20 @@ def run_due_maintenance(cfg, ota_due, raw_due,
     return result
 
 
+def sync_station_files_on_start(
+        cfg, sync=updater.sync_pinned_station_files, log_fn=log):
+    """Best-effort station file self-heal after the new updater is loaded."""
+    try:
+        changed = sync(cfg)
+        if changed:
+            station = cfg.get("station", {}).get("name", "Dakrosa1")
+            log_fn("station sync: da up reader legacy rieng cho %s" % station)
+        return bool(changed)
+    except Exception as exc:
+        log_fn("station sync loi (bo qua): %s" % str(exc)[:160])
+        return False
+
+
 def hint(err):
     e = err.lower()
     if "timeout" in e or "timed out" in e:
@@ -162,6 +176,7 @@ def once(cfg):
 
 def main():
     cfg = config.load()
+    sync_station_files_on_start(cfg)
     if "--once" in sys.argv:
         once(cfg)
         return

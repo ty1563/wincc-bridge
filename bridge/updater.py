@@ -6,8 +6,10 @@ Khong can gh, khong can token (repo public), git la tuy chon.
 """
 import os
 import io
+import hashlib
 import ssl
 import shutil
+import tempfile
 import zipfile
 import subprocess
 import urllib.request
@@ -21,6 +23,17 @@ RAW_VERSION = f"https://raw.githubusercontent.com/{OWNER_REPO}/{BRANCH}/version.
 ZIP_URL = f"https://github.com/{OWNER_REPO}/archive/refs/heads/{BRANCH}.zip"
 PROTECT = {"config.local.toml"}
 CACERT = os.path.join(REPO_ROOT, "bridge", "cacert.pem")
+# Dakrosa1 stays on the last archive-only reader (v1.4.9).  Dakrosa2 keeps the
+# current raw/native reader.  Pin both commit and digest so future main changes
+# cannot silently alter the station-specific rollback payload.
+DAKROSA1_LEGACY_READER_COMMIT = "c9457663f677be8bd3b671f62a5b73518aacccda"
+DAKROSA1_LEGACY_READER_URL = (
+    "https://raw.githubusercontent.com/%s/%s/box/oledb_reader.py" %
+    (OWNER_REPO, DAKROSA1_LEGACY_READER_COMMIT)
+)
+DAKROSA1_LEGACY_READER_SHA256 = (
+    "b26cedf3586d729204a9c92a67a8a6ee60d19d52064439ad4f16d003cfd4892f"
+)
 
 
 def _ssl_ctx():
@@ -163,6 +176,34 @@ def _remote_scp_dir(w):
     return box_dir
 
 
+def _uses_dakrosa1_legacy_reader(cfg):
+    station = str(cfg.get("station", {}).get("name") or "").strip().lower()
+    return station == "dakrosa1"
+
+
+def _stage_dakrosa1_legacy_reader():
+    with _urlopen(DAKROSA1_LEGACY_READER_URL, timeout=30) as response:
+        payload = response.read()
+    digest = hashlib.sha256(payload).hexdigest()
+    if digest != DAKROSA1_LEGACY_READER_SHA256:
+        raise RuntimeError("Dakrosa1 legacy reader checksum mismatch")
+    fd, staged = tempfile.mkstemp(prefix="dakrosa1-reader-", suffix=".py")
+    try:
+        with os.fdopen(fd, "wb") as output:
+            output.write(payload)
+    except Exception:
+        try:
+            os.close(fd)
+        except OSError:
+            pass
+        try:
+            os.unlink(staged)
+        except OSError:
+            pass
+        raise
+    return staged
+
+
 def _sync_box(cfg):
     w = cfg["winccbox"]
     # Che do local: reader nam ngay tren may nay -> git da cap nhat, khong can scp
@@ -175,7 +216,34 @@ def _sync_box(cfg):
     if w.get("key"):
         scp += ["-i", w["key"]]
     local_box = os.path.join(REPO_ROOT, "box")
-    for fn in os.listdir(local_box):
-        if fn.endswith(".py"):
-            subprocess.run(scp + [os.path.join(local_box, fn), f"{target}:{box_dir}/{fn}"],
-                           capture_output=True, text=True, timeout=60)
+    legacy_reader = None
+    if _uses_dakrosa1_legacy_reader(cfg):
+        legacy_reader = _stage_dakrosa1_legacy_reader()
+    try:
+        for fn in os.listdir(local_box):
+            if not fn.endswith(".py"):
+                continue
+            source = os.path.join(local_box, fn)
+            if legacy_reader and fn.lower() == "oledb_reader.py":
+                source = legacy_reader
+            result = subprocess.run(
+                scp + [source, f"{target}:{box_dir}/{fn}"],
+                capture_output=True, text=True, timeout=60)
+            if result.returncode != 0:
+                raise RuntimeError(
+                    "scp %s failed: %s" %
+                    (fn, (result.stderr or result.stdout or "unknown")[:160]))
+    finally:
+        if legacy_reader:
+            try:
+                os.unlink(legacy_reader)
+            except OSError:
+                pass
+
+
+def sync_pinned_station_files(cfg):
+    """Re-apply station-specific files after restart, even without a new OTA."""
+    if not _uses_dakrosa1_legacy_reader(cfg):
+        return False
+    _sync_box(cfg)
+    return True

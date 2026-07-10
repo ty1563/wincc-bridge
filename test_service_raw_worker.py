@@ -101,6 +101,23 @@ class RawShipWorkerTests(unittest.TestCase):
         self.assertTrue(result["updated"])
         raw_starter.assert_not_called()
 
+    def test_startup_station_sync_is_best_effort(self):
+        messages = []
+
+        self.assertTrue(service.sync_station_files_on_start(
+            {"station": {"name": "Dakrosa1"}},
+            sync=lambda cfg: True,
+            log_fn=messages.append,
+        ))
+        self.assertIn("Dakrosa1", messages[0])
+
+        self.assertFalse(service.sync_station_files_on_start(
+            {},
+            sync=lambda cfg: (_ for _ in ()).throw(RuntimeError("offline")),
+            log_fn=messages.append,
+        ))
+        self.assertIn("offline", messages[-1])
+
 
 if __name__ == "__main__":
     unittest.main()
