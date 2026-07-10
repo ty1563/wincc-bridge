@@ -1,6 +1,7 @@
 """Service chinh tren may tram: vong lap snapshot + OTA. NSSM boc thanh Windows service."""
 import sys
 import os
+import threading
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -20,6 +21,7 @@ SNAPSHOT_SEC_MAX = 30
 # du tag ma provider khong tra - tan so, nhiet do, cong to...). Config
 # [intervals] rawship_sec ghi de; 0 = tat.
 RAW_SHIP_SEC = 300
+_raw_thread = None
 
 
 def raw_ship_iv(cfg):
@@ -42,6 +44,37 @@ def effective_snap_iv(cfg):
     Config cu 'snapshot_sec = 300' se tu bi ep xuong 30s ma khong can sua may."""
     want = int(cfg.get("intervals", {}).get("snapshot_sec", SNAPSHOT_SEC_MAX))
     return max(10, min(want, SNAPSHOT_SEC_MAX))
+
+
+def _raw_ship_once(cfg):
+    """Heavy raw/probe job. Runs outside the 30-second snapshot loop."""
+    try:
+        dump = collect.collect_rawdump(cfg)
+        st3, body = poster.post_raw(cfg, dump)
+        log(f"rawdump {dump.get('shipped_vids', 0)}/{dump.get('total_vids', '?')} vid "
+            f"{dump.get('shipped_blocks', len(dump.get('blocks', [])))} blocks "
+            f"({dump.get('dump_bytes', 0) // 1024}KB) -> HTTP {st3} {body[:80]}")
+    except Exception as e:
+        log(f"rawdump loi (bo qua): {str(e)[:150]}")
+
+
+def start_raw_ship(cfg, thread_factory=threading.Thread):
+    """Start at most one daemon raw job and return immediately."""
+    global _raw_thread
+    if raw_ship_active():
+        return False
+    _raw_thread = thread_factory(
+        target=_raw_ship_once,
+        args=(cfg,),
+        daemon=True,
+        name="wincc-raw-ship",
+    )
+    _raw_thread.start()
+    return True
+
+
+def raw_ship_active():
+    return _raw_thread is not None and _raw_thread.is_alive()
 
 
 def hint(err):
@@ -126,23 +159,23 @@ def main():
             log(f"  hint: {hint(str(e))}")
         # RAW DUMP dinh ky (best-effort): loi khong anh huong snapshot/n8n
         if raw_iv and (time.time() - last_raw) >= raw_iv:
-            last_raw = time.time()
-            try:
-                dump = collect.collect_rawdump(cfg)
-                st3, body = poster.post_raw(cfg, dump)
-                log(f"rawdump {dump.get('shipped_vids', 0)}/{dump.get('total_vids', '?')} vid "
-                    f"{dump.get('shipped_blocks', len(dump.get('blocks', [])))} blocks "
-                    f"({dump.get('dump_bytes', 0) // 1024}KB) -> HTTP {st3} {body[:80]}")
-            except Exception as e:
-                log(f"rawdump loi (bo qua): {str(e)[:150]}")
+            if start_raw_ship(cfg):
+                last_raw = time.time()
+            else:
+                log("rawdump truoc van dang chay -> khong tao job chong lan")
         if ota_on and (time.time() - last_ota) >= ota_iv:
-            last_ota = time.time()
-            try:
-                if updater.check_and_update(cfg, log=log):
-                    log("OTA: co code moi -> thoat de NSSM khoi dong lai voi code moi")
-                    sys.exit(0)
-            except Exception as e:
-                log(f"OTA ERR: {e}")
+            # Khong thoat service trong luc daemon thread dang cho subprocess;
+            # tren Windows child co the thanh orphan va job moi chong len sau restart.
+            if raw_ship_active():
+                log("OTA: rawdump dang chay -> doi xong roi cap nhat")
+            else:
+                last_ota = time.time()
+                try:
+                    if updater.check_and_update(cfg, log=log):
+                        log("OTA: co code moi -> thoat de NSSM khoi dong lai voi code moi")
+                        sys.exit(0)
+                except Exception as e:
+                    log(f"OTA ERR: {e}")
         time.sleep(max(5, snap_iv - (time.time() - t0)))
 
 
