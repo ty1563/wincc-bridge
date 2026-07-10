@@ -1,6 +1,18 @@
+import ctypes
+import math
+import os
+import tempfile
 import unittest
+from unittest import mock
 
-from box.wincc_runtime import build_probe, select_candidate_tags
+from box.wincc_runtime import (
+    DMVarKeyW,
+    WinCCRuntimeAPI,
+    build_probe,
+    locate_wincc_bin,
+    probe_runtime,
+    select_candidate_tags,
+)
 
 
 class FakeRuntimeAPI:
@@ -80,6 +92,126 @@ class WinCCRuntimeProbeTests(unittest.TestCase):
 
         self.assertFalse(result["available"])
         self.assertIn("ODK license unavailable", result["error"])
+
+    def test_ctypes_adapter_reads_float_with_state_and_quality(self):
+        class ReadFloat:
+            def __call__(self, name, state_ptr, quality_ptr):
+                self.name = name
+                state_ptr._obj.value = 7
+                quality_ptr._obj.value = 192
+                return 49.98
+
+        read_float = ReadFloat()
+        fake_apicf = type("FakeAPICF", (), {
+            "GetTagFloatStateQCWait": read_float,
+        })()
+        api = WinCCRuntimeAPI(dmclient=object(), apicf=fake_apicf, configure=False)
+
+        result = api.read_numeric(r"22kV\Bus_nF", 8)
+
+        self.assertEqual(read_float.name, b"22kV\\Bus_nF")
+        self.assertAlmostEqual(result["value"], 49.98, places=3)
+        self.assertEqual(result["state"], 7)
+        self.assertEqual(result["quality"], 192)
+
+    def test_ctypes_adapter_rejects_non_numeric_types(self):
+        api = WinCCRuntimeAPI(dmclient=object(), apicf=object(), configure=False)
+
+        with self.assertRaisesRegex(ValueError, "unsupported numeric type"):
+            api.read_numeric("TextTag", 10)
+
+    def test_ctypes_adapter_discovers_runtime_project_and_enumerates_tags(self):
+        class RuntimeProject:
+            def __call__(self, buffer, size, error):
+                buffer.value = r"C:\SCADA\Dakrosa1\Dakrosa1.mcp"
+                return 1
+
+        class EnumVariables:
+            def __call__(self, project, tag_filter, callback, user, error):
+                self.project = project
+                for tag_id, name in ((11, r"U1\Power_nP"), (12, r"U1\Speed_nEng")):
+                    key = DMVarKeyW()
+                    key.dwKeyType = 3
+                    key.dwID = tag_id
+                    key.szName = name
+                    callback(ctypes.pointer(key), None)
+                return 1
+
+        enum_variables = EnumVariables()
+        fake_dm = type("FakeDM", (), {
+            "DMGetRuntimeProjectW": RuntimeProject(),
+            "DMEnumVariablesW": enum_variables,
+        })()
+        api = WinCCRuntimeAPI(dmclient=fake_dm, apicf=object(), configure=False)
+
+        project = api.runtime_project()
+        tags = api.enumerate_tags(project)
+
+        self.assertEqual(project, r"C:\SCADA\Dakrosa1\Dakrosa1.mcp")
+        self.assertEqual(enum_variables.project, project)
+        self.assertEqual(tags, [
+            {"id": 11, "name": r"U1\Power_nP"},
+            {"id": 12, "name": r"U1\Speed_nEng"},
+        ])
+
+    def test_ctypes_adapter_reads_configured_tag_type(self):
+        class GetVarType:
+            def __call__(self, project, key_ptr, count, type_ptr, error):
+                self.key_name = key_ptr._obj.szName
+                self.count = count
+                type_ptr._obj.dwType = 9
+                type_ptr._obj.dwSize = 8
+                type_ptr._obj.szTypeName = "Double"
+                return 1
+
+        get_var_type = GetVarType()
+        fake_dm = type("FakeDM", (), {"DMGetVarTypeW": get_var_type})()
+        api = WinCCRuntimeAPI(dmclient=fake_dm, apicf=object(), configure=False)
+
+        result = api.tag_type(
+            r"C:\SCADA\Dakrosa1\Dakrosa1.mcp",
+            {"id": 11, "name": r"U1\Power_nP"},
+        )
+
+        self.assertEqual(get_var_type.key_name, r"U1\Power_nP")
+        self.assertEqual(get_var_type.count, 1)
+        self.assertEqual(result, {"code": 9, "size": 8, "name": "Double"})
+
+    def test_wincc_bin_discovery_honors_explicit_environment_path(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            open(os.path.join(temp_dir, "apicf.dll"), "wb").close()
+            open(os.path.join(temp_dir, "dmclient.dll"), "wb").close()
+
+            with mock.patch.dict(os.environ, {"WINCC_BIN": temp_dir}, clear=False):
+                result = locate_wincc_bin()
+
+        self.assertEqual(result, temp_dir)
+
+    def test_auto_loading_rejects_non_32_bit_python_before_touching_wincc(self):
+        if ctypes.sizeof(ctypes.c_void_p) == 4:
+            self.skipTest("test only applies to the development 64-bit interpreter")
+
+        with self.assertRaisesRegex(RuntimeError, "32-bit Python"):
+            WinCCRuntimeAPI()
+
+    def test_public_probe_accepts_factory_for_safe_boundary_testing(self):
+        result = probe_runtime(api_factory=FakeRuntimeAPI, candidate_limit=2)
+
+        self.assertTrue(result["available"])
+        self.assertEqual(len(result["candidates"]), 2)
+
+    def test_ctypes_adapter_rejects_non_finite_values_before_json(self):
+        class ReadFloat:
+            def __call__(self, name, state_ptr, quality_ptr):
+                return math.nan
+
+        fake_apicf = type("FakeAPICF", (), {
+            "GetTagFloatStateQCWait": ReadFloat(),
+        })()
+        api = WinCCRuntimeAPI(dmclient=object(), apicf=fake_apicf, configure=False)
+
+        with self.assertRaisesRegex(ValueError, "non-finite"):
+            api.read_numeric("BadFloat", 8)
 
 
 if __name__ == "__main__":
