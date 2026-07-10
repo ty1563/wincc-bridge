@@ -5,6 +5,7 @@ the selection and payload logic can be tested without WinCC or 32-bit Python.
 """
 import argparse
 import ctypes
+from ctypes import wintypes
 import datetime
 import json
 import math
@@ -868,9 +869,36 @@ def _utc_now():
             .isoformat().replace("+00:00", "Z"))
 
 
+def _pump_windows_messages(max_messages=256):
+    """Dispatch DMCLIENT's hidden-window messages on the owner thread."""
+    if os.name != "nt" or not hasattr(ctypes, "windll"):
+        return 0
+    user32 = ctypes.windll.user32
+    peek = user32.PeekMessageW
+    peek.restype = ctypes.c_int
+    peek.argtypes = [
+        ctypes.POINTER(wintypes.MSG), wintypes.HWND, wintypes.UINT,
+        wintypes.UINT, wintypes.UINT,
+    ]
+    translate = user32.TranslateMessage
+    translate.restype = ctypes.c_int
+    translate.argtypes = [ctypes.POINTER(wintypes.MSG)]
+    dispatch = user32.DispatchMessageW
+    dispatch.restype = ctypes.c_ssize_t
+    dispatch.argtypes = [ctypes.POINTER(wintypes.MSG)]
+    message = wintypes.MSG()
+    pumped = 0
+    while pumped < int(max_messages) and peek(
+            ctypes.byref(message), None, 0, 0, 1):  # PM_REMOVE
+        translate(ctypes.byref(message))
+        dispatch(ctypes.byref(message))
+        pumped += 1
+    return pumped
+
+
 def run_callback_canary(emit, stop_event, api_factory=None,
                         heartbeat_sec=5.0, callback_timeout_sec=15.0,
-                        poll_sec=1.0):
+                        poll_sec=0.05, message_pump=None):
     """Observe four Dakrosa2 power tags without changing snapshot values."""
     session = "%s-%s" % (os.getpid(), int(time.time()))
     state_lock = threading.Lock()
@@ -881,6 +909,8 @@ def run_callback_canary(emit, stop_event, api_factory=None,
         "first_latency_ms": None,
     }
     started_at = time.monotonic()
+    if message_pump is None:
+        message_pump = _pump_windows_messages
     api = None
     subscription = None
     connected = False
@@ -930,7 +960,10 @@ def run_callback_canary(emit, stop_event, api_factory=None,
         })
         first_reported = False
         last_heartbeat = 0.0
-        while not stop_event.wait(max(0.01, float(poll_sec))):
+        while not stop_event.is_set():
+            message_pump()
+            if stop_event.wait(max(0.01, float(poll_sec))):
+                break
             now = time.monotonic()
             with state_lock:
                 last_mono = callback_state["last_monotonic"]

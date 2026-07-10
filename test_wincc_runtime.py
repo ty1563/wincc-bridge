@@ -125,6 +125,59 @@ class WinCCRuntimeProbeTests(unittest.TestCase):
         self.assertEqual(api.stopped, 44)
         self.assertTrue(api.disconnected)
 
+    def test_callback_canary_pumps_owner_thread_messages_before_timeout(self):
+        events = []
+        stop_event = threading.Event()
+
+        class Subscription:
+            taid = 55
+            stats = {"callbacks": 1, "items": 1, "errors": 0, "oversized": 0}
+
+        class API:
+            def connect(self):
+                pass
+
+            def start_updates(self, names, callback, cycle):
+                self.callback = callback
+                return Subscription()
+
+            def stop_updates(self, subscription):
+                pass
+
+            def disconnect(self):
+                pass
+
+        api = API()
+        pumped = []
+
+        def pump_messages():
+            if not pumped:
+                pumped.append(True)
+                api.callback({
+                    "LV-KW": {
+                        "value": 2.41, "state": 0, "quality": 192,
+                        "variant_type": 4,
+                    },
+                })
+
+        def emit(event):
+            events.append(event)
+            if event.get("event") == "heartbeat" and event.get("callbacks"):
+                stop_event.set()
+
+        run_callback_canary(
+            emit,
+            stop_event,
+            api_factory=lambda: api,
+            message_pump=pump_messages,
+            heartbeat_sec=0.01,
+            callback_timeout_sec=0.2,
+            poll_sec=0.01,
+        )
+
+        self.assertTrue(pumped)
+        self.assertIn("first_callback", [event["event"] for event in events])
+
     def test_callback_structures_match_packed_win32_header_layout(self):
         self.assertEqual(ctypes.sizeof(DMVarKeyW), 270)
         self.assertEqual(ctypes.sizeof(DMVarUpdateExW), 560)
