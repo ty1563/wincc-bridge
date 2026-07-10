@@ -108,6 +108,39 @@ class WinCCRuntimeProbeTests(unittest.TestCase):
         self.assertFalse(result["supported"])
         factory.assert_not_called()
 
+    def test_curated_snapshot_prefers_one_bounded_batch_read(self):
+        class BatchAPI:
+            def connect(self):
+                pass
+
+            def disconnect(self):
+                pass
+
+            def read_numerics(self, names, type_code):
+                self.names = names
+                self.type_code = type_code
+                return {
+                    "Tag-A": {"value": 10.0, "state": 0, "quality": None},
+                    "Tag-B": {"value": 20.0, "state": 0, "quality": None},
+                }
+
+            def read_numeric(self, name, type_code):
+                raise AssertionError("sequential read should not be used")
+
+        api = BatchAPI()
+        specs = (
+            {"name": "Tag-A", "keys": ("a",), "min": 0, "max": 100},
+            {"name": "Tag-B", "keys": ("b",), "min": 0, "max": 100},
+        )
+
+        result = read_curated_snapshot(
+            "Dakrosa2", "2026-07-10T04:30:00Z",
+            api_factory=lambda: api, specs=specs)
+
+        self.assertEqual(api.names, ["Tag-A", "Tag-B"])
+        self.assertEqual(api.type_code, 8)
+        self.assertEqual(result["accepted"], 2)
+
     def test_candidate_filter_keeps_electrical_mechanical_and_temperature_tags(self):
         tags = FakeRuntimeAPI().enumerate_tags("unused")
 
@@ -201,6 +234,28 @@ class WinCCRuntimeProbeTests(unittest.TestCase):
         self.assertAlmostEqual(result["value"], 49.98, places=3)
         self.assertEqual(result["state"], 7)
         self.assertIsNone(result["quality"])
+
+    def test_ctypes_adapter_reads_selected_values_in_one_data_manager_call(self):
+        class GetValues:
+            def __call__(self, keys, count, updates, error):
+                self.count = count
+                self.names = [keys[i].szName for i in range(count)]
+                for index, value in enumerate((50.125, 812.5)):
+                    updates[index].dmValue.vt = 4  # VT_R4
+                    updates[index].dmValue.fltVal = value
+                    updates[index].dwState = 0
+                return 1
+
+        get_values = GetValues()
+        fake_dm = type("FakeDM", (), {"DMGetValueW": get_values})()
+        api = WinCCRuntimeAPI(dmclient=fake_dm, configure=False)
+
+        result = api.read_numerics(["H1-Hz", "H1-KW"], 8)
+
+        self.assertEqual(get_values.count, 2)
+        self.assertEqual(get_values.names, ["H1-Hz", "H1-KW"])
+        self.assertAlmostEqual(result["H1-Hz"]["value"], 50.125)
+        self.assertAlmostEqual(result["H1-KW"]["value"], 812.5)
 
     def test_ctypes_adapter_rejects_non_numeric_types(self):
         api = WinCCRuntimeAPI(dmclient=object(), configure=False)

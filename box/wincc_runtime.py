@@ -364,6 +364,10 @@ class WinCCRuntimeAPI:
             ctypes.byref(key), 1, ctypes.byref(update), ctypes.byref(error))
         if not ok:
             self._raise_dm_error("DMGetValueW", error)
+        return self._numeric_update(name, update)
+
+    @staticmethod
+    def _numeric_update(name, update):
         variant_type = int(update.dmValue.vt) & 0x0FFF
         field = _VARIANT_NUMERIC_FIELDS.get(variant_type)
         if not field:
@@ -378,6 +382,37 @@ class WinCCRuntimeAPI:
             "state": int(update.dwState),
             "quality": None,
         }
+
+    def read_numerics(self, names, type_code):
+        """Read a bounded exact-name list in one DMGetValueW call."""
+        try:
+            numeric_type = int(type_code)
+        except (TypeError, ValueError):
+            numeric_type = 0
+        if numeric_type not in NUMERIC_TYPE_CODES:
+            raise ValueError("unsupported numeric type: %s" % type_code)
+        names = [str(name) for name in names]
+        if not names:
+            return {}
+        if len(names) > 256:
+            raise ValueError("too many WinCC values in one batch")
+        keys = (DMVarKeyW * len(names))()
+        updates = (DMVarUpdateW * len(names))()
+        for index, name in enumerate(names):
+            keys[index].dwKeyType = 2
+            keys[index].szName = name
+        error = CMNErrorW()
+        ok = self.dmclient.DMGetValueW(
+            keys, len(names), updates, ctypes.byref(error))
+        if not ok:
+            self._raise_dm_error("DMGetValueW", error)
+        result = {}
+        for index, name in enumerate(names):
+            try:
+                result[name] = self._numeric_update(name, updates[index])
+            except (TypeError, ValueError):
+                continue
+        return result
 
     @staticmethod
     def _raise_dm_error(operation, error):
@@ -599,9 +634,20 @@ def read_curated_snapshot(station_name, snapshot_utc,
         if hasattr(api, "connect"):
             api.connect()
             connected = True
+        batch_samples = None
+        if hasattr(api, "read_numerics"):
+            try:
+                batch_samples = api.read_numerics(
+                    [spec["name"] for spec in specs], 8)
+            except Exception:
+                # Compatibility fallback for older Runtime/Data Manager builds.
+                batch_samples = None
         for spec in specs:
             try:
-                sample = api.read_numeric(spec["name"], 8)
+                if batch_samples is None:
+                    sample = api.read_numeric(spec["name"], 8)
+                else:
+                    sample = batch_samples[spec["name"]]
                 value = float(sample["value"])
                 if spec.get("absolute"):
                     value = abs(value)
