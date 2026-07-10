@@ -45,6 +45,46 @@ class DMTypeRefW(ctypes.Structure):
     ]
 
 
+class VariantData(ctypes.Union):
+    _fields_ = [
+        ("llVal", ctypes.c_longlong),
+        ("ullVal", ctypes.c_ulonglong),
+        ("lVal", ctypes.c_long),
+        ("ulVal", ctypes.c_ulong),
+        ("intVal", ctypes.c_int),
+        ("uintVal", ctypes.c_uint),
+        ("iVal", ctypes.c_short),
+        ("uiVal", ctypes.c_ushort),
+        ("cVal", ctypes.c_byte),
+        ("bVal", ctypes.c_ubyte),
+        ("fltVal", ctypes.c_float),
+        ("dblVal", ctypes.c_double),
+        ("boolVal", ctypes.c_short),
+        ("ptr", ctypes.c_void_p),
+    ]
+
+
+class Variant(ctypes.Structure):
+    _anonymous_ = ("data",)
+    _fields_ = [
+        ("vt", ctypes.c_ushort),
+        ("wReserved1", ctypes.c_ushort),
+        ("wReserved2", ctypes.c_ushort),
+        ("wReserved3", ctypes.c_ushort),
+        ("data", VariantData),
+    ]
+
+
+class DMVarUpdateW(ctypes.Structure):
+    _pack_ = 1
+    _fields_ = [
+        ("dmTypeRef", DMTypeRefW),
+        ("dmVarKey", DMVarKeyW),
+        ("dmValue", Variant),
+        ("dwState", ctypes.c_ulong),
+    ]
+
+
 DMEnumVarProcW = ctypes.CFUNCTYPE(
     ctypes.c_int,
     ctypes.POINTER(DMVarKeyW),
@@ -109,41 +149,47 @@ def locate_wincc_bin(explicit=None):
         if folded in seen:
             continue
         seen.add(folded)
-        if (os.path.isfile(os.path.join(candidate, "apicf.dll")) and
-                os.path.isfile(os.path.join(candidate, "dmclient.dll"))):
+        if os.path.isfile(os.path.join(candidate, "dmclient.dll")):
             return candidate
-    raise RuntimeError("WinCC bin not found (need apicf.dll and dmclient.dll)")
+    raise RuntimeError("WinCC bin not found (need dmclient.dll)")
 
-_NUMERIC_READERS = {
-    1: ("GetTagBitStateQC", ctypes.c_int),
-    2: ("GetTagSByteStateQC", ctypes.c_byte),
-    3: ("GetTagByteStateQC", ctypes.c_ubyte),
-    4: ("GetTagSWordStateQC", ctypes.c_short),
-    5: ("GetTagWordStateQC", ctypes.c_ushort),
-    6: ("GetTagSDWordStateQC", ctypes.c_long),
-    7: ("GetTagDWordStateQC", ctypes.c_ulong),
-    8: ("GetTagFloatStateQC", ctypes.c_float),
-    9: ("GetTagDoubleStateQC", ctypes.c_double),
+_VARIANT_NUMERIC_FIELDS = {
+    2: "iVal",       # VT_I2
+    3: "lVal",       # VT_I4
+    4: "fltVal",     # VT_R4
+    5: "dblVal",     # VT_R8
+    11: "boolVal",   # VT_BOOL
+    16: "cVal",      # VT_I1
+    17: "bVal",      # VT_UI1
+    18: "uiVal",     # VT_UI2
+    19: "ulVal",     # VT_UI4
+    20: "llVal",     # VT_I8
+    21: "ullVal",    # VT_UI8
+    22: "intVal",    # VT_INT
+    23: "uintVal",   # VT_UINT
 }
 
 _VALUABLE_TOKEN = re.compile(
     r"(?:^|[^a-z0-9])(?:"
     r"n(?:p|q|pf|f|u(?:12|23|31|1n|2n|3n)|i[123]|eng|gv)|"
     r"i(?:a|b|c|tb|[123])|u(?:ab|bc|ca|ptb|12|23|31)|"
-    r"p|q|f|kw|kvar|kva|kwh|kvah|hz|pf|freq(?:uency)?|"
+    r"p|q|f|kw|kvar|kva|kwh|kvah|hz|pf|power|curr(?:ent)?|"
+    r"volt(?:age)?|freq(?:uency)?|"
     r"temp(?:erature)?|spd|speed|eng|gv|guide|flow|level|pressure|"
     r"vibration|bearing|winding|oil|water|rain|alarm|trip|status"
     r")(?:$|[^a-z0-9])",
     re.IGNORECASE,
 )
+_EVENT_TOKEN = re.compile(
+    r"(?:^|[^a-z0-9])(?:alarm|trip|status)(?:$|[^a-z0-9])",
+    re.IGNORECASE,
+)
 
 
 class WinCCRuntimeAPI:
-    """Thin adapter over WinCC's 32-bit DMCLIENT/APICF C APIs."""
+    """Thin adapter over WinCC's external 32-bit DMCLIENT API."""
 
-    def __init__(self, dmclient=None, apicf=None, configure=True, bin_dir=None):
-        if (dmclient is None) != (apicf is None):
-            raise ValueError("dmclient and apicf must be supplied together")
+    def __init__(self, dmclient=None, configure=True, bin_dir=None):
         self._dll_dir_handle = None
         if dmclient is None:
             if ctypes.sizeof(ctypes.c_void_p) != 4:
@@ -155,15 +201,11 @@ class WinCCRuntimeAPI:
             elif hasattr(ctypes, "windll"):
                 ctypes.windll.kernel32.SetDllDirectoryW(str(bin_dir))
             dmclient = ctypes.WinDLL(os.path.join(bin_dir, "dmclient.dll"))
-            # APICF exports use cdecl (unlike DMCLIENT's WINAPI/stdcall calls).
-            apicf = ctypes.CDLL(os.path.join(bin_dir, "apicf.dll"))
         self.dmclient = dmclient
-        self.apicf = apicf
         self._connected = False
         self._notify_callback = None
         if configure:
             self._configure_dmclient()
-            self._configure_readers()
 
     def _configure_dmclient(self):
         connect = self.dmclient.DMConnectW
@@ -193,6 +235,12 @@ class WinCCRuntimeAPI:
             ctypes.c_wchar_p, ctypes.POINTER(DMVarKeyW), ctypes.c_ulong,
             ctypes.POINTER(DMTypeRefW), ctypes.POINTER(CMNErrorW),
         ]
+        get_value = self.dmclient.DMGetValueW
+        get_value.restype = ctypes.c_int
+        get_value.argtypes = [
+            ctypes.POINTER(DMVarKeyW), ctypes.c_ulong,
+            ctypes.POINTER(DMVarUpdateW), ctypes.POINTER(CMNErrorW),
+        ]
 
     def connect(self):
         @DMNotifyProcW
@@ -217,36 +265,35 @@ class WinCCRuntimeAPI:
         if not ok:
             self._raise_dm_error("DMDisConnectW", error)
 
-    def _configure_readers(self):
-        for function_name, result_type in _NUMERIC_READERS.values():
-            function = getattr(self.apicf, function_name)
-            function.restype = result_type
-            function.argtypes = [
-                ctypes.c_char_p,
-                ctypes.POINTER(ctypes.c_ulong),
-                ctypes.POINTER(ctypes.c_ulong),
-            ]
-
     def read_numeric(self, name, type_code):
         try:
-            function_name, _ = _NUMERIC_READERS[int(type_code)]
-        except (KeyError, TypeError, ValueError):
+            numeric_type = int(type_code)
+        except (TypeError, ValueError):
+            numeric_type = 0
+        if numeric_type not in NUMERIC_TYPE_CODES:
             raise ValueError("unsupported numeric type: %s" % type_code)
-        state = ctypes.c_ulong(0)
-        quality = ctypes.c_ulong(0)
-        function = getattr(self.apicf, function_name)
-        value = function(
-            str(name).encode("mbcs", "replace"),
-            ctypes.byref(state),
-            ctypes.byref(quality),
-        )
+        key = DMVarKeyW()
+        key.dwKeyType = 2
+        key.szName = str(name)
+        update = DMVarUpdateW()
+        error = CMNErrorW()
+        ok = self.dmclient.DMGetValueW(
+            ctypes.byref(key), 1, ctypes.byref(update), ctypes.byref(error))
+        if not ok:
+            self._raise_dm_error("DMGetValueW", error)
+        variant_type = int(update.dmValue.vt) & 0x0FFF
+        field = _VARIANT_NUMERIC_FIELDS.get(variant_type)
+        if not field:
+            raise ValueError("unsupported VARIANT type %s for %s" %
+                             (variant_type, name))
+        value = float(getattr(update.dmValue, field))
         value = float(value)
         if not math.isfinite(value):
             raise ValueError("non-finite WinCC value for %s" % name)
         return {
             "value": value,
-            "state": int(state.value),
-            "quality": int(quality.value),
+            "state": int(update.dwState),
+            "quality": None,
         }
 
     @staticmethod
@@ -313,8 +360,14 @@ class WinCCRuntimeAPI:
 
 def _candidate_score(name):
     # WinCC projects commonly use camel-case fragments such as BearingTemp.
-    normalized = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", str(name))
-    return len(_VALUABLE_TOKEN.findall(normalized))
+    name = str(name)
+    if name.startswith("@"):
+        return 0
+    normalized = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", name)
+    valuable = len(_VALUABLE_TOKEN.findall(normalized))
+    events = len(_EVENT_TOKEN.findall(normalized))
+    telemetry = max(0, valuable - events)
+    return telemetry * 10 + events
 
 
 def select_candidate_tags(tags, limit=512):
@@ -336,7 +389,7 @@ def build_probe(api, inventory_limit=4000, candidate_limit=512):
         inventory_cap = max(0, int(inventory_limit))
         result = {
             "available": True,
-            "backend": "wincc-apicf",
+            "backend": "wincc-dmclient",
             "project": ntpath.basename(project),
             "total_tags": len(tags),
             "inventory": [
@@ -366,7 +419,7 @@ def build_probe(api, inventory_limit=4000, candidate_limit=512):
     except Exception as exc:
         return {
             "available": False,
-            "backend": "wincc-apicf",
+            "backend": "wincc-dmclient",
             "error": str(exc)[:300],
         }
 
@@ -379,7 +432,7 @@ def probe_runtime(inventory_limit=4000, candidate_limit=512,
     except Exception as exc:
         return {
             "available": False,
-            "backend": "wincc-apicf",
+            "backend": "wincc-dmclient",
             "error": str(exc)[:300],
         }
     connected = False
@@ -392,7 +445,7 @@ def probe_runtime(inventory_limit=4000, candidate_limit=512,
     except Exception as exc:
         return {
             "available": False,
-            "backend": "wincc-apicf",
+            "backend": "wincc-dmclient",
             "error": str(exc)[:300],
         }
     finally:

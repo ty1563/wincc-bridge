@@ -62,13 +62,28 @@ class WinCCRuntimeProbeTests(unittest.TestCase):
             },
         )
 
+    def test_candidate_filter_prioritizes_telemetry_over_system_and_alarm_tags(self):
+        tags = [
+            {"id": 1, "name": "@AlarmComeGone_H1"},
+            {"id": 2, "name": "Alarm_MatnguonAC_H1"},
+            {"id": 3, "name": "H1_GeneratorPower_kW"},
+            {"id": 4, "name": "H1_BearingTemp_1"},
+        ]
+
+        selected = select_candidate_tags(tags, limit=2)
+
+        self.assertEqual(
+            [tag["name"] for tag in selected],
+            ["H1_BearingTemp_1", "H1_GeneratorPower_kW"],
+        )
+
     def test_probe_returns_inventory_and_quality_aware_candidate_values(self):
         api = FakeRuntimeAPI()
 
         result = build_probe(api, inventory_limit=100, candidate_limit=20)
 
         self.assertTrue(result["available"])
-        self.assertEqual(result["backend"], "wincc-apicf")
+        self.assertEqual(result["backend"], "wincc-dmclient")
         self.assertEqual(result["project"], "Dakrosa1.mcp")
         self.assertEqual(result["total_tags"], 5)
         self.assertFalse(result["inventory_truncated"])
@@ -93,29 +108,30 @@ class WinCCRuntimeProbeTests(unittest.TestCase):
         self.assertFalse(result["available"])
         self.assertIn("ODK license unavailable", result["error"])
 
-    def test_ctypes_adapter_reads_float_with_state_and_quality(self):
-        class ReadFloat:
-            def __call__(self, name, state_ptr, quality_ptr):
-                self.name = name
-                state_ptr._obj.value = 7
-                quality_ptr._obj.value = 192
-                return 49.98
+    def test_ctypes_adapter_reads_float_with_state_from_data_manager(self):
+        class GetValue:
+            def __call__(self, key_ptr, count, update_ptr, error):
+                self.name = key_ptr._obj.szName
+                self.count = count
+                update_ptr._obj.dmValue.vt = 4  # VT_R4
+                update_ptr._obj.dmValue.fltVal = 49.98
+                update_ptr._obj.dwState = 7
+                return 1
 
-        read_float = ReadFloat()
-        fake_apicf = type("FakeAPICF", (), {
-            "GetTagFloatStateQC": read_float,
-        })()
-        api = WinCCRuntimeAPI(dmclient=object(), apicf=fake_apicf, configure=False)
+        get_value = GetValue()
+        fake_dm = type("FakeDM", (), {"DMGetValueW": get_value})()
+        api = WinCCRuntimeAPI(dmclient=fake_dm, configure=False)
 
         result = api.read_numeric(r"22kV\Bus_nF", 8)
 
-        self.assertEqual(read_float.name, b"22kV\\Bus_nF")
+        self.assertEqual(get_value.name, r"22kV\Bus_nF")
+        self.assertEqual(get_value.count, 1)
         self.assertAlmostEqual(result["value"], 49.98, places=3)
         self.assertEqual(result["state"], 7)
-        self.assertEqual(result["quality"], 192)
+        self.assertIsNone(result["quality"])
 
     def test_ctypes_adapter_rejects_non_numeric_types(self):
-        api = WinCCRuntimeAPI(dmclient=object(), apicf=object(), configure=False)
+        api = WinCCRuntimeAPI(dmclient=object(), configure=False)
 
         with self.assertRaisesRegex(ValueError, "unsupported numeric type"):
             api.read_numeric("TextTag", 10)
@@ -142,7 +158,7 @@ class WinCCRuntimeProbeTests(unittest.TestCase):
             "DMGetRuntimeProjectW": RuntimeProject(),
             "DMEnumVariablesW": enum_variables,
         })()
-        api = WinCCRuntimeAPI(dmclient=fake_dm, apicf=object(), configure=False)
+        api = WinCCRuntimeAPI(dmclient=fake_dm, configure=False)
 
         project = api.runtime_project()
         tags = api.enumerate_tags(project)
@@ -166,7 +182,7 @@ class WinCCRuntimeProbeTests(unittest.TestCase):
 
         get_var_type = GetVarType()
         fake_dm = type("FakeDM", (), {"DMGetVarTypeW": get_var_type})()
-        api = WinCCRuntimeAPI(dmclient=fake_dm, apicf=object(), configure=False)
+        api = WinCCRuntimeAPI(dmclient=fake_dm, configure=False)
 
         result = api.tag_type(
             r"C:\SCADA\Dakrosa1\Dakrosa1.mcp",
@@ -179,7 +195,6 @@ class WinCCRuntimeProbeTests(unittest.TestCase):
 
     def test_wincc_bin_discovery_honors_explicit_environment_path(self):
         with tempfile.TemporaryDirectory() as temp_dir:
-            open(os.path.join(temp_dir, "apicf.dll"), "wb").close()
             open(os.path.join(temp_dir, "dmclient.dll"), "wb").close()
 
             with mock.patch.dict(os.environ, {"WINCC_BIN": temp_dir}, clear=False):
@@ -207,14 +222,14 @@ class WinCCRuntimeProbeTests(unittest.TestCase):
         api.disconnect.assert_called_once_with()
 
     def test_ctypes_adapter_rejects_non_finite_values_before_json(self):
-        class ReadFloat:
-            def __call__(self, name, state_ptr, quality_ptr):
-                return math.nan
+        class GetValue:
+            def __call__(self, key_ptr, count, update_ptr, error):
+                update_ptr._obj.dmValue.vt = 4  # VT_R4
+                update_ptr._obj.dmValue.fltVal = math.nan
+                return 1
 
-        fake_apicf = type("FakeAPICF", (), {
-            "GetTagFloatStateQC": ReadFloat(),
-        })()
-        api = WinCCRuntimeAPI(dmclient=object(), apicf=fake_apicf, configure=False)
+        fake_dm = type("FakeDM", (), {"DMGetValueW": GetValue()})()
+        api = WinCCRuntimeAPI(dmclient=fake_dm, configure=False)
 
         with self.assertRaisesRegex(ValueError, "non-finite"):
             api.read_numeric("BadFloat", 8)
@@ -237,7 +252,7 @@ class WinCCRuntimeProbeTests(unittest.TestCase):
             "DMConnectW": connect,
             "DMDisConnectW": disconnect,
         })()
-        api = WinCCRuntimeAPI(dmclient=fake_dm, apicf=object(), configure=False)
+        api = WinCCRuntimeAPI(dmclient=fake_dm, configure=False)
 
         api.connect()
         api.disconnect()

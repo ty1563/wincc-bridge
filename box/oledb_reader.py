@@ -478,7 +478,7 @@ def _attach_runtime_probe(out, probe=None):
     except Exception as e:
         out["runtime_probe"] = {
             "available": False,
-            "backend": "wincc-apicf",
+            "backend": "wincc-dmclient",
             "error": str(e)[:300],
         }
 
