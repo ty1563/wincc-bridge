@@ -76,6 +76,35 @@ class FakeConnection:
 
 
 class RawDumpMultiBlockTests(unittest.TestCase):
+    def test_energy_5min_normalizes_only_dakrosa2_unit_power_from_kw(self):
+        reader = load_reader_namespace({
+            "WINCC_STATION_NAME": "Dakrosa2",
+            "WINCC_READ_MODE": "raw",
+        })
+        out = {
+            "station": "Dakrosa2",
+            "tags": {
+                "bus_P": {"avg": 2.41},
+                "u1_P": {"avg": 791.5},
+            },
+        }
+
+        reader["_set_energy_5min"](out)
+
+        self.assertEqual(out["energy_5min"]["bus_MWh_5min"], 0.200833)
+        self.assertEqual(out["energy_5min"]["u1_MWh_5min"], 0.065958)
+
+    def test_energy_5min_keeps_dakrosa1_unit_power_in_mw(self):
+        reader = load_reader_namespace({"WINCC_STATION_NAME": "Dakrosa1"})
+        out = {
+            "station": "Dakrosa1",
+            "tags": {"u1_P": {"avg": 2.49}},
+        }
+
+        reader["_set_energy_5min"](out)
+
+        self.assertEqual(out["energy_5min"]["u1_MWh_5min"], 0.2075)
+
     def test_runtime_snapshot_defaults_on_only_for_raw_station_mode(self):
         self.assertTrue(load_reader_namespace(
             {"WINCC_READ_MODE": "raw"})["RUNTIME_SNAPSHOT"])
@@ -462,7 +491,7 @@ class RawDumpMultiBlockTests(unittest.TestCase):
         payload = json.loads(stdout.getvalue())
         self.assertEqual(payload["tags"]["u1_P"]["last"], 791.5)
         self.assertIn("archive enumeration failed", payload["error"])
-        self.assertEqual(payload["energy_5min"]["u1_MWh_5min"], 65.958333)
+        self.assertEqual(payload["energy_5min"]["u1_MWh_5min"], 0.065958)
 
 
 if __name__ == "__main__":

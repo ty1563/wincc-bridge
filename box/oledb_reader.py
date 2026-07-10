@@ -333,11 +333,15 @@ def _runtime_snapshot_complete(out):
 
 def _set_energy_5min(out):
     energy = {}
+    station = str(out.get("station") or STATION_NAME).strip().lower()
     for up in ("bus_P", "u1_P", "u2_P", "u3_P"):
         tag = out.get("tags", {}).get(up)
         if isinstance(tag, dict) and tag.get("avg") is not None:
+            power_mw = float(tag["avg"])
+            if station == "dakrosa2" and up in ("u1_P", "u2_P", "u3_P"):
+                power_mw /= 1000.0
             energy[up.replace("_P", "_MWh_5min")] = round(
-                tag["avg"] * WINDOW_MIN / 60.0, 6)
+                power_mw * WINDOW_MIN / 60.0, 6)
     out["energy_5min"] = energy
 
 
@@ -702,12 +706,7 @@ def main():
         out["error"] = "0 tag co du lieu (WinCC Runtime co dang archive khong? Project active?)"
     if n_err:
         out["tag_errors"] = n_err
-    energy = {}
-    for up in ("bus_P", "u1_P", "u2_P", "u3_P"):
-        t = out["tags"].get(up)
-        if isinstance(t, dict) and t.get("avg") is not None:
-            energy[up.replace("_P", "_MWh_5min")] = round(t["avg"] * WINDOW_MIN / 60.0, 6)
-    out["energy_5min"] = energy
+    _set_energy_5min(out)
     print(json.dumps(out, ensure_ascii=False, default=str))
 
 
