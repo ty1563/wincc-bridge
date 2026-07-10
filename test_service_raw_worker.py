@@ -67,6 +67,37 @@ class RawShipWorkerTests(unittest.TestCase):
     def test_raw_ship_active_is_false_without_worker(self):
         self.assertFalse(service.raw_ship_active())
 
+    def test_dakrosa2_runtime_snapshot_matches_dashboard_refresh_cadence(self):
+        cfg = {
+            "station": {"name": "Dakrosa2", "read_mode": "raw"},
+            "intervals": {"snapshot_sec": 300},
+        }
+
+        self.assertEqual(service.effective_snap_iv(cfg, runtime_active=True), 10)
+        self.assertEqual(service.effective_snap_iv(cfg, runtime_active=False), 30)
+
+    def test_dakrosa1_keeps_conservative_snapshot_ceiling(self):
+        cfg = {
+            "station": {"name": "Dakrosa1"},
+            "intervals": {"snapshot_sec": 300},
+        }
+
+        self.assertEqual(service.effective_snap_iv(cfg), 30)
+
+    def test_one_snapshot_returns_runtime_mode_for_adaptive_cadence(self):
+        cfg = {"station": {"name": "Dakrosa2"}}
+        snap = {"read_mode": "runtime", "tags": {"u1_P": {"last": 790.0}}}
+
+        with mock.patch.object(service.collect, "collect", return_value=snap), \
+                mock.patch.object(service.collect, "local_version", return_value="1.5.11"), \
+                mock.patch.object(service.poster, "post", return_value=(200, "ok")), \
+                mock.patch.object(service.poster, "post_extra", return_value=(200, "ok")):
+            payload = service.one_snapshot(cfg)
+
+        self.assertEqual(payload["station"], "Dakrosa2")
+        self.assertEqual(payload["read_mode"], "runtime")
+        self.assertEqual(payload["version"], "1.5.11")
+
     def test_due_maintenance_checks_ota_before_starting_raw_job(self):
         order = []
 

@@ -16,6 +16,7 @@ from bridge import config, collect, poster, updater
 # sua config tren tung may tram. Config [intervals] snapshot_sec chi lam NHANH
 # hon (vd 15s), KHONG cham hon tran. Floor 10s de khong don dap may WinCC.
 SNAPSHOT_SEC_MAX = 30
+DAKROSA2_RUNTIME_SNAPSHOT_SEC_MAX = 10
 # Chu ky gui RAW DUMP (blob TagCompressed b64) len server decode - chay o MOI
 # tram (ke ca tram provider nhu Dakrosa1: dump la kenh phu doc lap, khai thac
 # du tag ma provider khong tra - tan so, nhiet do, cong to...). Config
@@ -39,11 +40,15 @@ def log(msg):
     print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] {msg}", flush=True)
 
 
-def effective_snap_iv(cfg):
-    """Chu ky snapshot thuc te: min(config, SNAPSHOT_SEC_MAX), floor 10s.
-    Config cu 'snapshot_sec = 300' se tu bi ep xuong 30s ma khong can sua may."""
+def effective_snap_iv(cfg, runtime_active=False):
+    """Use 10s only after Dakrosa2 confirms a native Runtime payload."""
     want = int(cfg.get("intervals", {}).get("snapshot_sec", SNAPSHOT_SEC_MAX))
-    return max(10, min(want, SNAPSHOT_SEC_MAX))
+    station = cfg.get("station", {})
+    native_runtime = (bool(runtime_active) and
+                      str(station.get("name", "")).strip().lower() == "dakrosa2" and
+                      str(station.get("read_mode", "")).strip().lower() == "raw")
+    ceiling = DAKROSA2_RUNTIME_SNAPSHOT_SEC_MAX if native_runtime else SNAPSHOT_SEC_MAX
+    return max(10, min(want, ceiling))
 
 
 def _raw_ship_once(cfg):
@@ -166,6 +171,7 @@ def one_snapshot(cfg, ping=None):
             log(f"  -> dashboard HTTP {st2}")
     except Exception as e:
         log(f"  dashboard POST loi (bo qua): {str(e)[:120]}")
+    return payload
 
 
 def once(cfg):
@@ -190,8 +196,11 @@ def main():
     last_raw = 0.0  # 0 -> gui raw dump ngay chu ky dau sau khi start
     while True:
         t0 = time.time()
+        cycle_iv = snap_iv
         try:
-            one_snapshot(cfg)
+            payload = one_snapshot(cfg)
+            cycle_iv = effective_snap_iv(
+                cfg, runtime_active=payload.get("read_mode") == "runtime")
         except Exception as e:
             log(f"snapshot ERR: {e}")
             log(f"  hint: {hint(str(e))}")
@@ -213,7 +222,7 @@ def main():
                 sys.exit(0)
         except Exception as e:
             log(f"OTA/maintenance ERR: {e}")
-        time.sleep(max(5, snap_iv - (time.time() - t0)))
+        time.sleep(max(5, cycle_iv - (time.time() - t0)))
 
 
 if __name__ == "__main__":

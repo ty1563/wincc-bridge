@@ -52,6 +52,7 @@ _runtime_snapshot_env = (_os.environ.get("WINCC_RUNTIME_SNAPSHOT") or "").strip(
 RUNTIME_SNAPSHOT = (READ_MODE == "raw" if not _runtime_snapshot_env else
                     _runtime_snapshot_env not in ("0", "false", "no", "off"))
 WINDOW_MIN = 5
+DAKROSA2_RUNTIME_FAST_MIN_TAGS = 100
 # Timeout de reader khong treo mai (ADODB mac dinh khong timeout khi Open/Execute).
 CONN_TIMEOUT_SEC = 5
 CMD_TIMEOUT_SEC = 15
@@ -312,17 +313,81 @@ def _read_raw_tag(c, db, vid, live_t=None):
             "avg": sum(vals) / len(vals), "last_ts": te}
 
 
+def _runtime_snapshot_complete(out):
+    """Only bypass archive SQL when the curated Runtime read is substantial."""
+    meta = out.get("runtime_snapshot")
+    tags = out.get("tags")
+    if not isinstance(meta, dict) or not isinstance(tags, dict):
+        return False
+    try:
+        attempted = int(meta.get("attempted", 0))
+        accepted = int(meta.get("accepted", 0))
+    except (TypeError, ValueError):
+        return False
+    core_power = {"bus_P", "u1_P", "u2_P", "u3_P"}
+    return (bool(meta.get("available")) and attempted > 0 and
+            accepted * 10 >= attempted * 9 and len(tags) >= accepted and
+            len(tags) >= DAKROSA2_RUNTIME_FAST_MIN_TAGS and
+            core_power.issubset(tags))
+
+
+def _set_energy_5min(out):
+    energy = {}
+    for up in ("bus_P", "u1_P", "u2_P", "u3_P"):
+        tag = out.get("tags", {}).get(up)
+        if isinstance(tag, dict) and tag.get("avg") is not None:
+            energy[up.replace("_P", "_MWh_5min")] = round(
+                tag["avg"] * WINDOW_MIN / 60.0, 6)
+    out["energy_5min"] = energy
+
+
 def _main_raw(out):
-    c, dsn = _sql_master()
-    if c is None:
-        out["error"] = "RAW: khong ket noi SQL (SQLOLEDB) - kiem tra .\\WINCC"
+    out["read_mode"] = "raw"
+    runtime_tags = {}
+    if RUNTIME_SNAPSHOT:
+        _attach_runtime_snapshot(out)
+        runtime_tags = dict(out.get("tags", {}))
+        if _runtime_snapshot_complete(out):
+            # Dakrosa2 exposes the complete curated set through Data Manager.
+            # Return it immediately; the background raw job still scans SQL.
+            out["read_mode"] = "runtime"
+            _set_energy_5min(out)
+            print(json.dumps(out, ensure_ascii=False, default=str))
+            return
+        # Preserve valid native values, but let archive fill the missing set.
+        out["tags"] = {}
+
+    try:
+        c, dsn = _sql_master()
+    except Exception as e:
+        out["tags"].update(runtime_tags)
+        out["error"] = "RAW: archive fallback loi - " + str(e)[:180]
+        _set_energy_5min(out)
         print(json.dumps(out, ensure_ascii=False, default=str))
         return
-    out["read_mode"] = "raw"
+    if c is None:
+        out["tags"].update(runtime_tags)
+        out["error"] = "RAW: khong ket noi SQL (SQLOLEDB) - kiem tra .\\WINCC"
+        _set_energy_5min(out)
+        print(json.dumps(out, ensure_ascii=False, default=str))
+        return
     out["dsn_used"] = dsn
-    db, live_t = _find_live_archive(c)
+    try:
+        db, live_t = _find_live_archive(c)
+    except Exception as e:
+        out["tags"].update(runtime_tags)
+        out["error"] = "RAW: archive fallback loi - " + str(e)[:180]
+        try:
+            c.Close()
+        except Exception:
+            pass
+        _set_energy_5min(out)
+        print(json.dumps(out, ensure_ascii=False, default=str))
+        return
     if not db:
+        out["tags"].update(runtime_tags)
         out["error"] = "RAW: khong tim thay archive TLG_F co du lieu"
+        _set_energy_5min(out)
         print(json.dumps(out, ensure_ascii=False, default=str))
         return
     out["archive"] = db
@@ -342,18 +407,10 @@ def _main_raw(out):
         pass
     if n_err:
         out["tag_errors"] = n_err
+    out["tags"].update(runtime_tags)
     if len(out["tags"]) == 0:
         out["error"] = "RAW: 0 tag doc duoc"
-    # Runtime exact-tag allow-list is fast enough for every snapshot.  Invalid
-    # state/range values are omitted, leaving the archive value untouched.
-    if RUNTIME_SNAPSHOT:
-        _attach_runtime_snapshot(out)
-    energy = {}
-    for up in ("bus_P", "u1_P", "u2_P", "u3_P"):
-        t = out["tags"].get(up)
-        if isinstance(t, dict) and t.get("avg") is not None:
-            energy[up.replace("_P", "_MWh_5min")] = round(t["avg"] * WINDOW_MIN / 60.0, 6)
-    out["energy_5min"] = energy
+    _set_energy_5min(out)
     print(json.dumps(out, ensure_ascii=False, default=str))
 
 

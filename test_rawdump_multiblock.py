@@ -1,4 +1,6 @@
 import datetime
+import io
+import json
 import os
 import pathlib
 import re
@@ -6,6 +8,7 @@ import sys
 import types
 import unittest
 from collections import Counter
+from contextlib import redirect_stdout
 from unittest import mock
 
 
@@ -188,6 +191,278 @@ class RawDumpMultiBlockTests(unittest.TestCase):
         self.assertEqual(out["tags"]["u1_P"]["last"], 790.0)
         self.assertEqual(out["runtime_snapshot"]["accepted"], 1)
         self.assertNotIn("tags", out["runtime_snapshot"])
+
+    def test_complete_runtime_snapshot_skips_slow_archive_scan(self):
+        reader = load_reader_namespace({
+            "WINCC_READ_MODE": "raw",
+            "WINCC_STATION_NAME": "Dakrosa2",
+        })
+        out = {
+            "snapshot_utc": "2026-07-10T06:40:00Z",
+            "window_min": 5,
+            "station": "Dakrosa2",
+            "tags": {},
+        }
+
+        def attach_runtime(payload):
+            stat = {
+                "count": 1,
+                "last": 791.5,
+                "min": 791.5,
+                "max": 791.5,
+                "avg": 791.5,
+                "last_ts": payload["snapshot_utc"],
+                "source": "wincc-dmclient",
+                "realtime": True,
+            }
+            for name in ("bus_P", "u1_P", "u2_P", "u3_P"):
+                payload["tags"][name] = dict(stat)
+            for index in range(101):
+                payload["tags"][f"runtime_tag_{index}"] = dict(stat)
+            payload["runtime_snapshot"] = {
+                "available": True,
+                "attempted": 93,
+                "accepted": 91,
+                "rejected": 2,
+            }
+
+        reader["_attach_runtime_snapshot"] = attach_runtime
+        reader["_sql_master"] = lambda: self.fail(
+            "complete native Runtime data must not open the archive database")
+
+        stdout = io.StringIO()
+        with redirect_stdout(stdout):
+            reader["_main_raw"](out)
+
+        payload = json.loads(stdout.getvalue())
+        self.assertEqual(payload["read_mode"], "runtime")
+        self.assertEqual(payload["tags"]["u1_P"]["last"], 791.5)
+        self.assertTrue(payload["runtime_snapshot"]["available"])
+
+    def test_partial_runtime_snapshot_keeps_archive_fallback(self):
+        reader = load_reader_namespace({
+            "WINCC_READ_MODE": "raw",
+            "WINCC_STATION_NAME": "Dakrosa2",
+        })
+        out = {
+            "snapshot_utc": "2026-07-10T06:40:00Z",
+            "window_min": 5,
+            "station": "Dakrosa2",
+            "tags": {},
+        }
+
+        def attach_runtime(payload):
+            payload["tags"]["u1_P"] = {
+                "count": 1,
+                "last": 791.5,
+                "min": 791.5,
+                "max": 791.5,
+                "avg": 791.5,
+                "last_ts": payload["snapshot_utc"],
+                "source": "wincc-dmclient",
+                "realtime": True,
+            }
+            payload["runtime_snapshot"] = {
+                "available": True,
+                "attempted": 93,
+                "accepted": 40,
+                "rejected": 53,
+            }
+
+        class Connection:
+            def Close(self):
+                pass
+
+        reader["_attach_runtime_snapshot"] = attach_runtime
+        reader["_sql_master"] = lambda: (Connection(), r".\WINCC")
+        reader["_find_live_archive"] = lambda _conn: (
+            "CC_Dakrosa2_TLG_F", datetime.datetime(2026, 7, 10, 6, 40))
+        reader["MAP"] = {1: "u1_P", 2: "archive_only"}
+        reader["_read_raw_tag"] = lambda _conn, _db, vid, _live: {
+            "count": 10,
+            "last": float(vid),
+            "min": float(vid),
+            "max": float(vid),
+            "avg": float(vid),
+            "last_ts": "2026-07-10T06:39:59Z",
+            "source": "archive",
+        }
+
+        stdout = io.StringIO()
+        with redirect_stdout(stdout):
+            reader["_main_raw"](out)
+
+        payload = json.loads(stdout.getvalue())
+        self.assertEqual(payload["read_mode"], "raw")
+        self.assertEqual(payload["archive"], "CC_Dakrosa2_TLG_F")
+        self.assertEqual(payload["tags"]["u1_P"]["source"], "wincc-dmclient")
+        self.assertEqual(payload["tags"]["archive_only"]["source"], "archive")
+
+    def test_runtime_metadata_cannot_fast_path_with_too_few_actual_tags(self):
+        reader = load_reader_namespace({
+            "WINCC_READ_MODE": "raw",
+            "WINCC_STATION_NAME": "Dakrosa2",
+        })
+        out = {
+            "snapshot_utc": "2026-07-10T06:40:00Z",
+            "window_min": 5,
+            "station": "Dakrosa2",
+            "tags": {},
+        }
+
+        def attach_runtime(payload):
+            stat = {
+                "count": 1,
+                "last": 50.0,
+                "min": 50.0,
+                "max": 50.0,
+                "avg": 50.0,
+                "last_ts": payload["snapshot_utc"],
+                "source": "wincc-dmclient",
+                "realtime": True,
+            }
+            for index in range(20):
+                payload["tags"][f"runtime_tag_{index}"] = dict(stat)
+            payload["runtime_snapshot"] = {
+                "available": True,
+                "attempted": 93,
+                "accepted": 91,
+                "rejected": 2,
+            }
+
+        class Connection:
+            def Close(self):
+                pass
+
+        reader["_attach_runtime_snapshot"] = attach_runtime
+        reader["_sql_master"] = lambda: (Connection(), r".\WINCC")
+        reader["_find_live_archive"] = lambda _conn: (
+            "CC_Dakrosa2_TLG_F", datetime.datetime(2026, 7, 10, 6, 40))
+        reader["MAP"] = {1: "archive_only"}
+        reader["_read_raw_tag"] = lambda *_args: {
+            "count": 10,
+            "last": 1.0,
+            "min": 1.0,
+            "max": 1.0,
+            "avg": 1.0,
+            "last_ts": "2026-07-10T06:39:59Z",
+            "source": "archive",
+        }
+
+        stdout = io.StringIO()
+        with redirect_stdout(stdout):
+            reader["_main_raw"](out)
+
+        payload = json.loads(stdout.getvalue())
+        self.assertEqual(payload["read_mode"], "raw")
+        self.assertIn("archive_only", payload["tags"])
+
+    def test_consistent_short_runtime_inventory_cannot_fast_path(self):
+        reader = load_reader_namespace({
+            "WINCC_READ_MODE": "raw",
+            "WINCC_STATION_NAME": "Dakrosa2",
+        })
+        out = {
+            "snapshot_utc": "2026-07-10T06:40:00Z",
+            "window_min": 5,
+            "station": "Dakrosa2",
+            "tags": {},
+        }
+
+        def attach_runtime(payload):
+            stat = {
+                "count": 1,
+                "last": 10.0,
+                "min": 10.0,
+                "max": 10.0,
+                "avg": 10.0,
+                "last_ts": payload["snapshot_utc"],
+                "source": "wincc-dmclient",
+                "realtime": True,
+            }
+            for name in ("bus_P", "u1_P", "u2_P", "u3_P"):
+                payload["tags"][name] = dict(stat)
+            payload["runtime_snapshot"] = {
+                "available": True,
+                "attempted": 4,
+                "accepted": 4,
+                "rejected": 0,
+            }
+
+        class Connection:
+            def Close(self):
+                pass
+
+        reader["_attach_runtime_snapshot"] = attach_runtime
+        reader["_sql_master"] = lambda: (Connection(), r".\WINCC")
+        reader["_find_live_archive"] = lambda _conn: (
+            "CC_Dakrosa2_TLG_F", datetime.datetime(2026, 7, 10, 6, 40))
+        reader["MAP"] = {1: "archive_only"}
+        reader["_read_raw_tag"] = lambda *_args: {
+            "count": 10,
+            "last": 1.0,
+            "min": 1.0,
+            "max": 1.0,
+            "avg": 1.0,
+            "last_ts": "2026-07-10T06:39:59Z",
+            "source": "archive",
+        }
+
+        stdout = io.StringIO()
+        with redirect_stdout(stdout):
+            reader["_main_raw"](out)
+
+        payload = json.loads(stdout.getvalue())
+        self.assertEqual(payload["read_mode"], "raw")
+        self.assertIn("archive_only", payload["tags"])
+
+    def test_archive_discovery_failure_preserves_partial_runtime_values(self):
+        reader = load_reader_namespace({
+            "WINCC_READ_MODE": "raw",
+            "WINCC_STATION_NAME": "Dakrosa2",
+        })
+        out = {
+            "snapshot_utc": "2026-07-10T06:40:00Z",
+            "window_min": 5,
+            "station": "Dakrosa2",
+            "tags": {},
+        }
+
+        def attach_runtime(payload):
+            payload["tags"]["u1_P"] = {
+                "count": 1,
+                "last": 791.5,
+                "min": 791.5,
+                "max": 791.5,
+                "avg": 791.5,
+                "last_ts": payload["snapshot_utc"],
+                "source": "wincc-dmclient",
+                "realtime": True,
+            }
+            payload["runtime_snapshot"] = {
+                "available": True,
+                "attempted": 93,
+                "accepted": 1,
+                "rejected": 92,
+            }
+
+        class Connection:
+            def Close(self):
+                pass
+
+        reader["_attach_runtime_snapshot"] = attach_runtime
+        reader["_sql_master"] = lambda: (Connection(), r".\WINCC")
+        reader["_find_live_archive"] = lambda _conn: (_ for _ in ()).throw(
+            RuntimeError("archive enumeration failed"))
+
+        stdout = io.StringIO()
+        with redirect_stdout(stdout):
+            reader["_main_raw"](out)
+
+        payload = json.loads(stdout.getvalue())
+        self.assertEqual(payload["tags"]["u1_P"]["last"], 791.5)
+        self.assertIn("archive enumeration failed", payload["error"])
+        self.assertEqual(payload["energy_5min"]["u1_MWh_5min"], 65.958333)
 
 
 if __name__ == "__main__":
