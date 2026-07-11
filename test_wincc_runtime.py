@@ -615,6 +615,104 @@ class WinCCRuntimeProbeTests(unittest.TestCase):
         self.assertEqual(api.read_names, [])
         self.assertNotIn("value", result["candidates"][0])
 
+    def test_probe_reads_only_explicit_scada_diagnostic_tags(self):
+        class ScadaAPI(FakeRuntimeAPI):
+            def enumerate_tags(self, project):
+                return [
+                    {"id": 101, "name": "H1QFclose"},
+                    {"id": 102, "name": "Apsuat1"},
+                    {"id": 103, "name": "ClickH1"},
+                ]
+
+            def tag_type(self, project, tag):
+                if tag["name"] == "H1QFclose":
+                    return {"code": 1, "name": "Binary Tag", "size": 1}
+                return {"code": 8, "name": "Float", "size": 4}
+
+            def read_numeric(self, name, type_code):
+                self.read_names.append(name)
+                values = {"H1QFclose": 1, "Apsuat1": 3.25}
+                return {"value": values[name], "state": 0, "quality": None}
+
+        api = ScadaAPI()
+        result = build_probe(
+            api,
+            inventory_limit=0,
+            candidate_limit=0,
+            exact_names=("h1qfclose", "Apsuat1", "MissingStatus", "ClickH1"),
+        )
+
+        exact = result["exact"]
+        self.assertEqual(exact["requested"], 4)
+        self.assertEqual(exact["found"], 2)
+        self.assertEqual(exact["missing"], ["MissingStatus"])
+        self.assertEqual(exact["denied"], ["ClickH1"])
+        self.assertEqual(
+            [(item["name"], item["type_code"], item["value"])
+             for item in exact["tags"]],
+            [("H1QFclose", 1, 1), ("Apsuat1", 8, 3.25)],
+        )
+        self.assertEqual(api.read_names, ["H1QFclose", "Apsuat1"])
+        self.assertNotIn("ClickH1", api.read_names)
+
+    def test_scada_exact_probe_defaults_empty_and_is_gated_to_dakrosa2(self):
+        class StationAPI:
+            def __init__(self, project):
+                self.project = project
+                self.read_names = []
+
+            def connect(self):
+                pass
+
+            def disconnect(self):
+                pass
+
+            def runtime_project(self):
+                return self.project
+
+            def enumerate_tags(self, project):
+                return [{"id": 101, "name": "H1QFclose"}]
+
+            def tag_type(self, project, tag):
+                return {"code": 1, "name": "Binary Tag", "size": 1}
+
+            def read_numeric(self, name, type_code):
+                self.read_names.append(name)
+                return {"value": 1, "state": 0, "quality": None}
+
+        generic = StationAPI(r"C:\SCADA\Other\Other.mcp")
+        generic_result = build_probe(
+            generic, inventory_limit=0, candidate_limit=0)
+        self.assertEqual(generic_result["exact"]["requested"], 0)
+        self.assertEqual(generic.read_names, [])
+
+        station1 = StationAPI(r"C:\SCADA\Dakrosa1\Dakrosa1.mcp")
+        result1 = probe_runtime(
+            api_factory=lambda: station1,
+            station_name="Dakrosa1",
+            inventory_limit=0,
+            candidate_limit=0,
+        )
+        self.assertEqual(result1["exact"]["requested"], 0)
+        self.assertEqual(station1.read_names, [])
+
+        station2 = StationAPI(r"C:\SCADA\Dakrosa2\Dakrosa2.mcp")
+        result2 = probe_runtime(
+            api_factory=lambda: station2,
+            station_name="Dakrosa2",
+            inventory_limit=0,
+            candidate_limit=0,
+        )
+        self.assertGreater(result2["exact"]["requested"], 0)
+        self.assertEqual(station2.read_names, ["H1QFclose"])
+
+    def test_default_scada_diagnostic_allowlist_excludes_command_tags(self):
+        folded = {name.lower() for name in wincc_runtime.SCADA_DIAGNOSTIC_TAGS}
+
+        self.assertTrue({"471close", "h1qfclose", "h2qfclose", "h3qfclose"} <= folded)
+        self.assertTrue({"apsuat1", "apsuat2", "domo"} <= folded)
+        self.assertFalse(any(name.startswith("click") for name in folded))
+
     def test_probe_degrades_to_diagnostic_payload_instead_of_raising(self):
         class BrokenAPI:
             def runtime_project(self):

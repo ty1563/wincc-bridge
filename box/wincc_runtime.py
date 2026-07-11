@@ -349,6 +349,35 @@ def _station2_curated_specs():
 
 STATION2_CURATED_SPECS = _station2_curated_specs()
 CALLBACK_CANARY_TAGS = ("LV-KW", "H1-KW", "H2-KW", "H3-KW")
+# Read-only names recovered from Dakrosa2/A_22kV.PDL.  This diagnostic list is
+# deliberately separate from the curated snapshot until live type/state/value
+# evidence has been reviewed.  Never add Click* command tags here.
+SCADA_DIAGNOSTIC_TAGS = (
+    "471close",
+    "H1QFclose",
+    "H2QFclose",
+    "H3QFclose",
+    "H1comgroup1",
+    "H2comgroup1",
+    "H3comgroup0",
+    "AUX_LCU41_IW0",
+    "OpenFull",
+    "CloseFull",
+    "MotorStatus",
+    "Quatai",
+    "Loipha",
+    "remoterlocal",
+    "Domo",
+    "Apsuat1",
+    "Apsuat2",
+    "Apsuatcao",
+    "apKTH1",
+    "apKTH2",
+    "apKTH3",
+    "dongKTH1",
+    "dongKTH2",
+    "dongKTH3",
+)
 
 
 class WinCCRuntimeAPI:
@@ -712,8 +741,57 @@ def select_candidate_tags(tags, limit=512):
     return [item[2] for item in ranked[:max(0, int(limit))]]
 
 
+def _exact_probe(api, project, tags, names, read_values):
+    requested = []
+    denied = []
+    seen = set()
+    for value in names or ():
+        name = str(value).strip()
+        folded = name.lower()
+        if name and folded not in seen:
+            seen.add(folded)
+            if folded.startswith("click"):
+                denied.append(name)
+            else:
+                requested.append(name)
+    by_name = {
+        str(tag.get("name", "")).lower(): tag
+        for tag in tags
+        if str(tag.get("name", ""))
+    }
+    found = []
+    missing = []
+    for requested_name in requested:
+        tag = by_name.get(requested_name.lower())
+        if tag is None:
+            missing.append(requested_name)
+            continue
+        name = str(tag.get("name", ""))
+        item = {"id": int(tag.get("id", 0)), "name": name}
+        try:
+            type_info = api.tag_type(project, tag)
+            type_code = int(type_info.get("code", 0))
+            item.update({
+                "type_code": type_code,
+                "type_name": str(type_info.get("name", "")),
+                "type_size": int(type_info.get("size", 0)),
+            })
+            if read_values and type_code in NUMERIC_TYPE_CODES:
+                item.update(api.read_numeric(name, type_code))
+        except Exception as exc:
+            item["error"] = str(exc)[:200]
+        found.append(item)
+    return {
+        "requested": len(requested) + len(denied),
+        "found": len(found),
+        "missing": missing,
+        "denied": denied,
+        "tags": found,
+    }
+
+
 def build_probe(api, inventory_limit=4000, candidate_limit=512,
-                read_values=True):
+                read_values=True, exact_names=()):
     """Build a bounded JSON-safe diagnostic payload from a WinCC API adapter."""
     try:
         project = api.runtime_project()
@@ -747,6 +825,8 @@ def build_probe(api, inventory_limit=4000, candidate_limit=512,
             except Exception as exc:
                 item["error"] = str(exc)[:200]
             result["candidates"].append(item)
+        result["exact"] = _exact_probe(
+            api, project, tags, exact_names, read_values)
         return result
     except Exception as exc:
         return {
@@ -757,7 +837,8 @@ def build_probe(api, inventory_limit=4000, candidate_limit=512,
 
 
 def probe_runtime(inventory_limit=4000, candidate_limit=512,
-                  api_factory=WinCCRuntimeAPI, read_values=True):
+                  api_factory=WinCCRuntimeAPI, read_values=True,
+                  exact_names=None, station_name=""):
     """Create the real adapter at the boundary and always return diagnostics."""
     try:
         api = api_factory()
@@ -772,9 +853,14 @@ def probe_runtime(inventory_limit=4000, candidate_limit=512,
         if hasattr(api, "connect"):
             api.connect()
             connected = True
+        if exact_names is None:
+            station = str(station_name or "").strip().lower()
+            exact_names = (SCADA_DIAGNOSTIC_TAGS
+                           if station == "dakrosa2" else ())
         return build_probe(api, inventory_limit=inventory_limit,
                            candidate_limit=candidate_limit,
-                           read_values=read_values)
+                           read_values=read_values,
+                           exact_names=exact_names)
     except Exception as exc:
         return {
             "available": False,

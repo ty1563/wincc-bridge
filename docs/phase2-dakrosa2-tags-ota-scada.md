@@ -1,6 +1,6 @@
 # Phase 2 spec: Dakrosa2 tags, 3-minute OTA check, and workstation SCADA view
 
-Bridge candidate release: `1.5.14`.
+Bridge candidate release: `1.5.15`.
 
 ## Objective
 
@@ -29,6 +29,14 @@ The copied Dakrosa2 WinCC installation is
 - The original workstation process overview is `A_22kV.PDL`, displayed inside
   `@SCREEN.PDL` / `@1001.PDL` at 1920 x 847. This comes from the PDL Runtime dump,
   not from a generic WinCC template.
+- A full-memory `pdlrt` dump identifies the active historical path as
+  `D:\DAKROSA2\GraCS\A_22kV.pdl`. The recovered A_22kV compound file is 602,112
+  bytes with SHA-256
+  `D4420676362F0DAA785F992369EB05C9A14E4C7F1B442A91ADDF38DCBA7A324E`.
+- Static extraction currently accounts for 278 picture objects, 99/99 dynamic
+  records, 68 tag references, and the complete 1920 x 847 object coordinate
+  system. The old `D:\BACKUP2023` path was an unverified lead and is no longer
+  treated as the source of truth.
 
 ## Success criteria
 
@@ -82,20 +90,33 @@ The copied Dakrosa2 WinCC installation is
 5. Dashboard telemetry refresh is no slower than the 10-second Dakrosa2 bridge
    snapshot while the SCADA view is open.
 
-## Required original project files
+### Slice D — recovered SCADA tag diagnostics
 
-The copied WinCC installation does not contain the Dakrosa2 project GraCS files.
-The dump identifies the active project as
-`D:\BACKUP2023\backup2023\backup2023.mcp`; the required read-only source folder
-is expected at `D:\BACKUP2023\backup2023\GraCS` on the workstation. At minimum,
-copy:
+1. Only `station_name=Dakrosa2` enables `runtime_probe.exact`; the generic and
+   Dakrosa1 probe defaults remain empty. The bounded read-only allow-list was
+   recovered from `A_22kV.PDL` and covers breaker states, auxiliary states,
+   pressure/opening values, and unit current/voltage fields.
+2. This evidence channel remains separate from the curated snapshot until each
+   live type, Data Manager state, and physical range has been reviewed.
+3. Command/event tags `Click22`, `ClickH1`, `ClickH2`, and `ClickH3` are excluded
+   by contract. The exact-probe boundary also hard-denies every `Click*` name,
+   even if a future caller passes one explicitly.
+4. The probe does not change updater, NSSM, station pinning, callback canary, or
+   the production snapshot merge path.
+
+## Recovered and still-required original project files
+
+The copied WinCC installation does not contain the Dakrosa2 project GraCS
+folder, but the full-memory dump has yielded verified copies of `A_22kV.PDL`,
+`@SCREEN.PDL`, `@1001.PDL`, and 37 additional PDL files. If the live project
+folder becomes available, preserve a read-only copy of:
 
 - `A_22kV.PDL`, `@SCREEN.PDL`, and `@1001.PDL`;
 - referenced process screens such as `A_H1.PDL`, `A_H2.PDL`, and `A_H3.PDL`;
 - all referenced bitmap/JPEG/PNG files, fonts, and project symbol libraries;
 - one 1920 x 847 runtime screenshot of `A_22kV.PDL` for pixel verification.
 
-Known referenced assets missing from the local installation copy include
+Known referenced assets still missing as standalone project files include
 `quat1..10.png`, `12-0_turbin4.png`, `logo_new.jpg`, and `captureqwsx.bmp`.
 
 ## Commands
@@ -192,6 +213,9 @@ until their engineering scale is separately verified.
 
 ## Open evidence gap
 
-Exact visual completion is pending the original Dakrosa2 project GraCS folder
-and reference screenshot. Tag and OTA slices can be completed and released
-independently while that read-only asset is obtained.
+Exact visual completion is pending static-property reconstruction for all
+object classes, recovery or faithful replacement of the remaining referenced
+images, and a full-resolution runtime reference screenshot. The recovered
+thumbnail is a structural reference, not sufficient evidence for a 100% pixel
+identity claim. The `1.5.15` probe must first return live type/state/value
+evidence before any recovered status tag is promoted into the snapshot.

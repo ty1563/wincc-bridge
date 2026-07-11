@@ -548,7 +548,11 @@ def _attach_runtime_probe(out, probe=None, metadata_only=False):
             from wincc_runtime import probe_runtime as probe
         # Raw full endpoint hien doc duoc khong auth: khong ship toan bo process
         # inventory. Chi gui tap ung vien da loc, du cho nghien cuu va nhe may.
-        kwargs = {"inventory_limit": 0, "candidate_limit": 128}
+        kwargs = {
+            "inventory_limit": 0,
+            "candidate_limit": 128,
+            "station_name": STATION_NAME,
+        }
         if metadata_only:
             kwargs["read_values"] = False
         out["runtime_probe"] = probe(**kwargs)
