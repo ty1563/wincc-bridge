@@ -268,6 +268,27 @@ class RawDumpMultiBlockTests(unittest.TestCase):
         self.assertEqual(payload["tags"]["u1_P"]["last"], 791.5)
         self.assertTrue(payload["runtime_snapshot"]["available"])
 
+    def test_optional_runtime_tags_do_not_disable_complete_core_snapshot(self):
+        reader = load_reader_namespace({
+            "WINCC_READ_MODE": "raw",
+            "WINCC_STATION_NAME": "Dakrosa2",
+        })
+        stat = {"last": 1.0}
+        tags = {"runtime_tag_%d" % index: stat for index in range(101)}
+        tags.update({name: stat for name in ("bus_P", "u1_P", "u2_P", "u3_P")})
+        out = {
+            "tags": tags,
+            "runtime_snapshot": {
+                "available": True,
+                "attempted": 116,
+                "accepted": 91,
+                "required_attempted": 93,
+                "required_accepted": 91,
+            },
+        }
+
+        self.assertTrue(reader["_runtime_snapshot_complete"](out))
+
     def test_partial_runtime_snapshot_keeps_archive_fallback(self):
         reader = load_reader_namespace({
             "WINCC_READ_MODE": "raw",

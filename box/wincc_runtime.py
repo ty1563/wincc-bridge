@@ -225,7 +225,7 @@ _EVENT_TOKEN = re.compile(
 
 
 def _station2_curated_specs():
-    """Small, validated Runtime set used by the 30-second snapshot.
+    """Small, validated Runtime set used by the adaptive snapshot.
 
     The WinCC archive exposes longer symbolic paths, while DMCLIENT exposes
     these flat process-tag aliases.  Bounds are deliberately physical rather
@@ -269,6 +269,43 @@ def _station2_curated_specs():
                 "max": 150.0,
             })
 
+    # HV is the approximately 400 V generator/common bus in this project.
+    # The source power names say kW/kVA/kVAr, but their live scale is
+    # MW/MVA/MVAr, matching the existing bus power contract.  Keep this group
+    # isolated from bus_* because bus_* already means the 22 kV export meter.
+    generator_bus_metrics = (
+        ("Hz", "hv_F", 45.0, 55.0),
+        ("IA", "hv_I1", 0.0, 10000.0),
+        ("IB", "hv_I2", 0.0, 10000.0),
+        ("IC", "hv_I3", 0.0, 10000.0),
+        ("Itb", "hv_I_avg", 0.0, 10000.0),
+        ("KVA", "hv_S", 0.0, 100.0),
+        ("KVAh", "hv_KVAh", 0.0, 1.0e9),
+        ("KVAr", "hv_Q", -100.0, 100.0),
+        ("KW", "hv_P", -100.0, 100.0),
+        ("KWh", "hv_KWh", 0.0, 1.0e9),
+        ("PF", "hv_PF", -1.05, 1.05),
+        ("UA", "hv_U1N", 0.0, 1000.0),
+        ("UB", "hv_U2N", 0.0, 1000.0),
+        ("UC", "hv_U3N", 0.0, 1000.0),
+        ("UAB", "hv_U12", 0.0, 1000.0),
+        ("UBC", "hv_U23", 0.0, 1000.0),
+        ("UCA", "hv_U31", 0.0, 1000.0),
+        ("Uptb", "hv_U_avg", 0.0, 1000.0),
+        ("Utb", "hv_U_ln_avg", 0.0, 1000.0),
+    )
+    for source_suffix, key, low, high in generator_bus_metrics:
+        spec = {
+            "name": "HV-%s" % source_suffix,
+            "keys": (key,),
+            "min": low,
+            "max": high,
+            "required": False,
+        }
+        if source_suffix == "PF":
+            spec["absolute"] = True
+        specs.append(spec)
+
     # LV is the 22 kV/export meter in this project.  Its live P/Q/S values are
     # MW/MVAr/MVA (matching the existing bus contract), while current is A.
     # Voltage is retained as lv_* until its project scaling is verified live.
@@ -288,6 +325,10 @@ def _station2_curated_specs():
         ("UBC", ("bus_U23", "lv_U23"), 0.0, 50000.0),
         ("UCA", ("bus_U31", "lv_U31"), 0.0, 50000.0),
         ("Uptb", ("bus_U_avg", "lv_U_avg"), 0.0, 50000.0),
+        ("UA", ("bus_U1N", "lv_U1N"), 0.0, 50.0),
+        ("UB", ("bus_U2N", "lv_U2N"), 0.0, 50.0),
+        ("UC", ("bus_U3N", "lv_U3N"), 0.0, 50.0),
+        ("Utb", ("bus_U_ln_avg", "lv_U_ln_avg"), 0.0, 50.0),
     )
     for source_suffix, keys, low, high in bus_metrics:
         spec = {
@@ -296,6 +337,8 @@ def _station2_curated_specs():
             "min": low,
             "max": high,
         }
+        if source_suffix in ("UA", "UB", "UC", "Utb"):
+            spec["required"] = False
         if source_suffix == "PF":
             # This export meter encodes power-flow direction in PF's sign;
             # canonical cos(phi) is the magnitude, while P/Q retain direction.
@@ -773,6 +816,8 @@ def read_curated_snapshot(station_name, snapshot_utc,
     if specs is None:
         specs = STATION2_CURATED_SPECS if station == "dakrosa2" else ()
     specs = tuple(specs)
+    required_attempted = sum(
+        1 for spec in specs if spec.get("required", True))
     if not specs:
         return {
             "available": False,
@@ -781,6 +826,8 @@ def read_curated_snapshot(station_name, snapshot_utc,
             "attempted": 0,
             "accepted": 0,
             "rejected": 0,
+            "required_attempted": 0,
+            "required_accepted": 0,
             "tags": {},
         }
     try:
@@ -794,12 +841,15 @@ def read_curated_snapshot(station_name, snapshot_utc,
             "attempted": 0,
             "accepted": 0,
             "rejected": len(specs),
+            "required_attempted": required_attempted,
+            "required_accepted": 0,
             "tags": {},
         }
     connected = False
     tags = {}
     accepted = 0
     rejected = 0
+    required_accepted = 0
     try:
         if hasattr(api, "connect"):
             api.connect()
@@ -821,8 +871,9 @@ def read_curated_snapshot(station_name, snapshot_utc,
                 value = float(sample["value"])
                 if spec.get("absolute"):
                     value = abs(value)
-                state = int(sample.get("state", -1))
-                if (state != 0 or not math.isfinite(value) or
+                state = sample.get("state", -1)
+                if (isinstance(state, bool) or state != 0 or
+                        not math.isfinite(value) or
                         value < float(spec["min"]) or
                         value > float(spec["max"])):
                     rejected += 1
@@ -831,6 +882,8 @@ def read_curated_snapshot(station_name, snapshot_utc,
                 for key in spec["keys"]:
                     tags[str(key)] = dict(stat)
                 accepted += 1
+                if spec.get("required", True):
+                    required_accepted += 1
             except Exception:
                 rejected += 1
         result = {
@@ -840,6 +893,8 @@ def read_curated_snapshot(station_name, snapshot_utc,
             "attempted": len(specs),
             "accepted": accepted,
             "rejected": rejected,
+            "required_attempted": required_attempted,
+            "required_accepted": required_accepted,
             "tags": tags,
         }
         if not accepted:
@@ -854,6 +909,8 @@ def read_curated_snapshot(station_name, snapshot_utc,
             "attempted": len(specs),
             "accepted": accepted,
             "rejected": len(specs) - accepted,
+            "required_attempted": required_attempted,
+            "required_accepted": required_accepted,
             "tags": {},
         }
     finally:

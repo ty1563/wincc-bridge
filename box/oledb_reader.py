@@ -322,11 +322,15 @@ def _runtime_snapshot_complete(out):
     try:
         attempted = int(meta.get("attempted", 0))
         accepted = int(meta.get("accepted", 0))
+        required_attempted = int(meta.get("required_attempted", attempted))
+        required_accepted = int(meta.get("required_accepted", accepted))
     except (TypeError, ValueError):
         return False
     core_power = {"bus_P", "u1_P", "u2_P", "u3_P"}
     return (bool(meta.get("available")) and attempted > 0 and
-            accepted * 10 >= attempted * 9 and len(tags) >= accepted and
+            required_attempted > 0 and
+            required_accepted * 10 >= required_attempted * 9 and
+            len(tags) >= accepted and
             len(tags) >= DAKROSA2_RUNTIME_FAST_MIN_TAGS and
             core_power.issubset(tags))
 

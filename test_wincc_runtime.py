@@ -348,6 +348,74 @@ class WinCCRuntimeProbeTests(unittest.TestCase):
         self.assertEqual(subscription.stats["errors"], 1)
         api.stop_updates(subscription)
 
+    def test_station2_curated_specs_include_verified_hv_and_lv_phase_tags(self):
+        specs = {
+            spec["name"]: spec
+            for spec in wincc_runtime.STATION2_CURATED_SPECS
+        }
+        expected_keys = {
+            "HV-Hz": ("hv_F",),
+            "HV-IA": ("hv_I1",),
+            "HV-IB": ("hv_I2",),
+            "HV-IC": ("hv_I3",),
+            "HV-Itb": ("hv_I_avg",),
+            "HV-KVA": ("hv_S",),
+            "HV-KVAh": ("hv_KVAh",),
+            "HV-KVAr": ("hv_Q",),
+            "HV-KW": ("hv_P",),
+            "HV-KWh": ("hv_KWh",),
+            "HV-PF": ("hv_PF",),
+            "HV-UA": ("hv_U1N",),
+            "HV-UB": ("hv_U2N",),
+            "HV-UC": ("hv_U3N",),
+            "HV-UAB": ("hv_U12",),
+            "HV-UBC": ("hv_U23",),
+            "HV-UCA": ("hv_U31",),
+            "HV-Uptb": ("hv_U_avg",),
+            "HV-Utb": ("hv_U_ln_avg",),
+            "LV-UA": ("bus_U1N", "lv_U1N"),
+            "LV-UB": ("bus_U2N", "lv_U2N"),
+            "LV-UC": ("bus_U3N", "lv_U3N"),
+            "LV-Utb": ("bus_U_ln_avg", "lv_U_ln_avg"),
+        }
+        expected_bounds = {
+            "HV-Hz": (45.0, 55.0, False),
+            "HV-IA": (0.0, 10000.0, False),
+            "HV-IB": (0.0, 10000.0, False),
+            "HV-IC": (0.0, 10000.0, False),
+            "HV-Itb": (0.0, 10000.0, False),
+            "HV-KVA": (0.0, 100.0, False),
+            "HV-KVAh": (0.0, 1.0e9, False),
+            "HV-KVAr": (-100.0, 100.0, False),
+            "HV-KW": (-100.0, 100.0, False),
+            "HV-KWh": (0.0, 1.0e9, False),
+            "HV-PF": (-1.05, 1.05, True),
+            "HV-UA": (0.0, 1000.0, False),
+            "HV-UB": (0.0, 1000.0, False),
+            "HV-UC": (0.0, 1000.0, False),
+            "HV-UAB": (0.0, 1000.0, False),
+            "HV-UBC": (0.0, 1000.0, False),
+            "HV-UCA": (0.0, 1000.0, False),
+            "HV-Uptb": (0.0, 1000.0, False),
+            "HV-Utb": (0.0, 1000.0, False),
+            "LV-UA": (0.0, 50.0, False),
+            "LV-UB": (0.0, 50.0, False),
+            "LV-UC": (0.0, 50.0, False),
+            "LV-Utb": (0.0, 50.0, False),
+        }
+
+        self.assertEqual(len(specs), 116)
+        self.assertEqual(
+            sum(len(spec["keys"]) for spec in specs.values()), 135)
+        for source_name, canonical_keys in expected_keys.items():
+            self.assertIn(source_name, specs)
+            self.assertEqual(specs[source_name]["keys"], canonical_keys)
+            self.assertFalse(specs[source_name]["required"])
+            low, high, absolute = expected_bounds[source_name]
+            self.assertEqual(specs[source_name]["min"], low)
+            self.assertEqual(specs[source_name]["max"], high)
+            self.assertEqual(bool(specs[source_name].get("absolute")), absolute)
+
     def test_curated_station2_snapshot_maps_only_valid_realtime_values(self):
         class SelectedAPI:
             def __init__(self):
@@ -361,6 +429,13 @@ class WinCCRuntimeProbeTests(unittest.TestCase):
                     "LV-KW": {"value": 2.41, "state": 0, "quality": None},
                     "LV-PF": {"value": -0.999, "state": 0, "quality": None},
                     "LV-UAB": {"value": 23.8, "state": 0, "quality": None},
+                    "LV-UA": {"value": 13.58, "state": 0, "quality": None},
+                    "HV-KW": {"value": 2.43, "state": 0, "quality": None},
+                    "HV-UA": {"value": 230.1, "state": 0, "quality": None},
+                    "HV-UAB": {"value": 399.4, "state": 0, "quality": None},
+                    "HV-IB": {"value": 3650.0, "state": 257, "quality": None},
+                    "HV-IC": {"value": 3525.0, "state": 0.5, "quality": None},
+                    "LV-UB": {"value": 13580.0, "state": 0, "quality": None},
                 }
 
             def connect(self):
@@ -392,6 +467,14 @@ class WinCCRuntimeProbeTests(unittest.TestCase):
         self.assertEqual(result["tags"]["lv_P"]["last"], 2.41)
         self.assertEqual(result["tags"]["bus_PF"]["last"], 0.999)
         self.assertEqual(result["tags"]["bus_U12"]["last"], 23.8)
+        self.assertEqual(result["tags"]["bus_U1N"]["last"], 13.58)
+        self.assertEqual(result["tags"]["lv_U1N"]["last"], 13.58)
+        self.assertEqual(result["tags"]["hv_P"]["last"], 2.43)
+        self.assertEqual(result["tags"]["hv_U1N"]["last"], 230.1)
+        self.assertEqual(result["tags"]["hv_U12"]["last"], 399.4)
+        self.assertNotIn("hv_I2", result["tags"])
+        self.assertNotIn("hv_I3", result["tags"])
+        self.assertNotIn("bus_U2N", result["tags"])
         self.assertNotIn("u1_I1", result["tags"])
         self.assertNotIn("u1_temp2", result["tags"])
         self.assertEqual(result["tags"]["u1_F"]["source"], "wincc-dmclient")
@@ -440,6 +523,35 @@ class WinCCRuntimeProbeTests(unittest.TestCase):
         self.assertEqual(api.names, ["Tag-A", "Tag-B"])
         self.assertEqual(api.type_code, 8)
         self.assertEqual(result["accepted"], 2)
+
+    def test_curated_snapshot_counts_optional_failures_separately_from_core(self):
+        class BatchAPI:
+            def connect(self):
+                pass
+
+            def disconnect(self):
+                pass
+
+            def read_numerics(self, names, type_code):
+                return {
+                    "Core-Tag": {"value": 10.0, "state": 0, "quality": None},
+                }
+
+        specs = (
+            {"name": "Core-Tag", "keys": ("core",), "min": 0, "max": 100},
+            {"name": "Optional-Tag", "keys": ("optional",), "min": 0,
+             "max": 100, "required": False},
+        )
+
+        result = read_curated_snapshot(
+            "Dakrosa2", "2026-07-10T04:30:00Z",
+            api_factory=BatchAPI, specs=specs)
+
+        self.assertEqual(result["attempted"], 2)
+        self.assertEqual(result["accepted"], 1)
+        self.assertEqual(result["required_attempted"], 1)
+        self.assertEqual(result["required_accepted"], 1)
+        self.assertNotIn("optional", result["tags"])
 
     def test_candidate_filter_keeps_electrical_mechanical_and_temperature_tags(self):
         tags = FakeRuntimeAPI().enumerate_tags("unused")
