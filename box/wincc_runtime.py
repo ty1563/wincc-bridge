@@ -344,6 +344,45 @@ def _station2_curated_specs():
             # canonical cos(phi) is the magnitude, while P/Q retain direction.
             spec["absolute"] = True
         specs.append(spec)
+
+    # Read-only A_22kV.PDL fields verified live through the isolated exact
+    # probe in 1.5.15.  Keep raw suffixes where engineering units or bit
+    # semantics are not yet independently proven.  All are optional so an
+    # auxiliary/status failure can never demote the established fast snapshot.
+    scada_metrics = (
+        ("471close", "scada_471_close_raw", 0.0, 1.0),
+        ("H1QFclose", "u1_qf_close_raw", 0.0, 1.0),
+        ("H2QFclose", "u2_qf_close_raw", 0.0, 1.0),
+        ("H3QFclose", "u3_qf_close_raw", 0.0, 1.0),
+        ("H1comgroup1", "u1_comgroup_raw", 0.0, 65535.0),
+        ("H2comgroup1", "u2_comgroup_raw", 0.0, 65535.0),
+        ("H3comgroup0", "u3_comgroup_raw", 0.0, 65535.0),
+        ("AUX_LCU41_IW0", "scada_aux_lcu41_iw0_raw", 0.0, 65535.0),
+        ("OpenFull", "scada_open_full_raw", 0.0, 1.0),
+        ("CloseFull", "scada_close_full_raw", 0.0, 1.0),
+        ("MotorStatus", "scada_motor_status_raw", 0.0, 1.0),
+        ("Quatai", "scada_overload_raw", 0.0, 1.0),
+        ("Loipha", "scada_phase_fault_raw", 0.0, 1.0),
+        ("remoterlocal", "scada_remote_local_raw", 0.0, 1.0),
+        ("Domo", "scada_opening_raw", 0.0, 110.0),
+        ("Apsuat1", "scada_pressure_1_raw", -100.0, 100.0),
+        ("Apsuat2", "scada_pressure_2_raw", -100.0, 100.0),
+        ("Apsuatcao", "scada_high_pressure_raw", 0.0, 1.0),
+        ("apKTH1", "u1_excitation_voltage_raw", 0.0, 1000.0),
+        ("apKTH2", "u2_excitation_voltage_raw", 0.0, 1000.0),
+        ("apKTH3", "u3_excitation_voltage_raw", 0.0, 1000.0),
+        ("dongKTH1", "u1_excitation_current_raw", 0.0, 1000.0),
+        ("dongKTH2", "u2_excitation_current_raw", 0.0, 1000.0),
+        ("dongKTH3", "u3_excitation_current_raw", 0.0, 1000.0),
+    )
+    for source_name, key, low, high in scada_metrics:
+        specs.append({
+            "name": source_name,
+            "keys": (key,),
+            "min": low,
+            "max": high,
+            "required": False,
+        })
     return tuple(specs)
 
 

@@ -1,6 +1,6 @@
 # Phase 2 spec: Dakrosa2 tags, 3-minute OTA check, and workstation SCADA view
 
-Bridge candidate release: `1.5.15`.
+Bridge candidate release: `1.5.16`.
 
 ## Objective
 
@@ -103,6 +103,13 @@ The copied Dakrosa2 WinCC installation is
    even if a future caller passes one explicitly.
 4. The probe does not change updater, NSSM, station pinning, callback canary, or
    the production snapshot merge path.
+5. Production canary `1.5.15` returned 24/24 exact names with no missing or
+   denied entries. Twenty-three samples had Data Manager `state=0`; only
+   `AUX_LCU41_IW0` had `state=257` and is therefore rejected from snapshots.
+6. Release `1.5.16` promotes the 24 names into the Dakrosa2 curated reader as
+   optional, bounded fields. Names retain a `_raw` suffix when engineering unit
+   or bit semantics are not independently proven; no status is interpreted as
+   open/closed merely from its numeric value.
 
 ## Recovered and still-required original project files
 
@@ -189,6 +196,25 @@ The `HV-*` power values are live-scaled MW/MVAr/MVA despite their source names.
 The energy counters preserve source naming but are not used in energy arithmetic
 until their engineering scale is separately verified.
 
+### Recovered A_22kV raw contract
+
+| Source names | Canonical keys | Accepted live range |
+|---|---|---:|
+| `471close`, `H1/2/3QFclose` | `scada_471_close_raw`, `u1/2/3_qf_close_raw` | 0..1 |
+| `H1/2comgroup1`, `H3comgroup0` | `u1/2/3_comgroup_raw` | 0..65,535 |
+| `AUX_LCU41_IW0` | `scada_aux_lcu41_iw0_raw` | 0..65,535 and state=0 |
+| `OpenFull`, `CloseFull`, `MotorStatus` | `scada_*_raw` feedback keys | 0..1 |
+| `Quatai`, `Loipha`, `Apsuatcao` | overload/phase/high-pressure raw keys | 0..1 |
+| `remoterlocal` | `scada_remote_local_raw` | 0..1 |
+| `Domo` | `scada_opening_raw` | 0..110 |
+| `Apsuat1`, `Apsuat2` | `scada_pressure_1/2_raw` | -100..100 |
+| `apKTH1/2/3` | `u1/2/3_excitation_voltage_raw` | 0..1,000 |
+| `dongKTH1/2/3` | `u1/2/3_excitation_current_raw` | 0..1,000 |
+
+These names are read-only observations. The `_raw` suffix is intentional until
+the original labels, units, and bit semantics are confirmed from the PDL object
+properties and at least two live operating states.
+
 ## Testing strategy
 
 - Small Python unit tests for alias/key/bounds and OTA interval selection.
@@ -217,5 +243,6 @@ Exact visual completion is pending static-property reconstruction for all
 object classes, recovery or faithful replacement of the remaining referenced
 images, and a full-resolution runtime reference screenshot. The recovered
 thumbnail is a structural reference, not sufficient evidence for a 100% pixel
-identity claim. The `1.5.15` probe must first return live type/state/value
-evidence before any recovered status tag is promoted into the snapshot.
+identity claim. The `1.5.16` snapshot can expose only the recovered fields that
+pass live `state=0` and physical-bound validation; rendering semantics still
+follow the original PDL expressions rather than invented status labels.

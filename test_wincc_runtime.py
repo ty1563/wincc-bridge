@@ -404,9 +404,9 @@ class WinCCRuntimeProbeTests(unittest.TestCase):
             "LV-Utb": (0.0, 50.0, False),
         }
 
-        self.assertEqual(len(specs), 116)
+        self.assertEqual(len(specs), 140)
         self.assertEqual(
-            sum(len(spec["keys"]) for spec in specs.values()), 135)
+            sum(len(spec["keys"]) for spec in specs.values()), 159)
         for source_name, canonical_keys in expected_keys.items():
             self.assertIn(source_name, specs)
             self.assertEqual(specs[source_name]["keys"], canonical_keys)
@@ -415,6 +415,45 @@ class WinCCRuntimeProbeTests(unittest.TestCase):
             self.assertEqual(specs[source_name]["min"], low)
             self.assertEqual(specs[source_name]["max"], high)
             self.assertEqual(bool(specs[source_name].get("absolute")), absolute)
+
+    def test_station2_curated_specs_include_live_verified_scada_tags(self):
+        specs = {
+            spec["name"]: spec
+            for spec in wincc_runtime.STATION2_CURATED_SPECS
+        }
+        expected = {
+            "471close": (("scada_471_close_raw",), 0.0, 1.0),
+            "H1QFclose": (("u1_qf_close_raw",), 0.0, 1.0),
+            "H2QFclose": (("u2_qf_close_raw",), 0.0, 1.0),
+            "H3QFclose": (("u3_qf_close_raw",), 0.0, 1.0),
+            "H1comgroup1": (("u1_comgroup_raw",), 0.0, 65535.0),
+            "H2comgroup1": (("u2_comgroup_raw",), 0.0, 65535.0),
+            "H3comgroup0": (("u3_comgroup_raw",), 0.0, 65535.0),
+            "AUX_LCU41_IW0": (("scada_aux_lcu41_iw0_raw",), 0.0, 65535.0),
+            "OpenFull": (("scada_open_full_raw",), 0.0, 1.0),
+            "CloseFull": (("scada_close_full_raw",), 0.0, 1.0),
+            "MotorStatus": (("scada_motor_status_raw",), 0.0, 1.0),
+            "Quatai": (("scada_overload_raw",), 0.0, 1.0),
+            "Loipha": (("scada_phase_fault_raw",), 0.0, 1.0),
+            "remoterlocal": (("scada_remote_local_raw",), 0.0, 1.0),
+            "Domo": (("scada_opening_raw",), 0.0, 110.0),
+            "Apsuat1": (("scada_pressure_1_raw",), -100.0, 100.0),
+            "Apsuat2": (("scada_pressure_2_raw",), -100.0, 100.0),
+            "Apsuatcao": (("scada_high_pressure_raw",), 0.0, 1.0),
+            "apKTH1": (("u1_excitation_voltage_raw",), 0.0, 1000.0),
+            "apKTH2": (("u2_excitation_voltage_raw",), 0.0, 1000.0),
+            "apKTH3": (("u3_excitation_voltage_raw",), 0.0, 1000.0),
+            "dongKTH1": (("u1_excitation_current_raw",), 0.0, 1000.0),
+            "dongKTH2": (("u2_excitation_current_raw",), 0.0, 1000.0),
+            "dongKTH3": (("u3_excitation_current_raw",), 0.0, 1000.0),
+        }
+
+        for source_name, (keys, low, high) in expected.items():
+            self.assertIn(source_name, specs)
+            self.assertEqual(specs[source_name]["keys"], keys)
+            self.assertEqual(specs[source_name]["min"], low)
+            self.assertEqual(specs[source_name]["max"], high)
+            self.assertFalse(specs[source_name]["required"])
 
     def test_curated_station2_snapshot_maps_only_valid_realtime_values(self):
         class SelectedAPI:
@@ -436,6 +475,13 @@ class WinCCRuntimeProbeTests(unittest.TestCase):
                     "HV-IB": {"value": 3650.0, "state": 257, "quality": None},
                     "HV-IC": {"value": 3525.0, "state": 0.5, "quality": None},
                     "LV-UB": {"value": 13580.0, "state": 0, "quality": None},
+                    "H1QFclose": {"value": 0, "state": 0, "quality": None},
+                    "H2QFclose": {"value": 2, "state": 0, "quality": None},
+                    "AUX_LCU41_IW0": {"value": 0, "state": 257, "quality": None},
+                    "Domo": {"value": 98.26, "state": 0, "quality": None},
+                    "Apsuat2": {"value": -0.77, "state": 0, "quality": None},
+                    "apKTH1": {"value": 25.2, "state": 0, "quality": None},
+                    "dongKTH1": {"value": 0.33, "state": 0, "quality": None},
                 }
 
             def connect(self):
@@ -477,6 +523,13 @@ class WinCCRuntimeProbeTests(unittest.TestCase):
         self.assertNotIn("bus_U2N", result["tags"])
         self.assertNotIn("u1_I1", result["tags"])
         self.assertNotIn("u1_temp2", result["tags"])
+        self.assertEqual(result["tags"]["u1_qf_close_raw"]["last"], 0.0)
+        self.assertEqual(result["tags"]["scada_opening_raw"]["last"], 98.26)
+        self.assertEqual(result["tags"]["scada_pressure_2_raw"]["last"], -0.77)
+        self.assertEqual(result["tags"]["u1_excitation_voltage_raw"]["last"], 25.2)
+        self.assertEqual(result["tags"]["u1_excitation_current_raw"]["last"], 0.33)
+        self.assertNotIn("u2_qf_close_raw", result["tags"])
+        self.assertNotIn("scada_aux_lcu41_iw0_raw", result["tags"])
         self.assertEqual(result["tags"]["u1_F"]["source"], "wincc-dmclient")
         self.assertTrue(result["tags"]["u1_F"]["realtime"])
         self.assertGreater(result["rejected"], 0)
