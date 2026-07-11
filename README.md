@@ -1,11 +1,12 @@
 # WinCC Bridge
 
-Service tự cập nhật (OTA) chạy trên **máy trạm** (online, cùng LAN với máy WinCC offline). Mỗi 5 phút: SSH sang máy WinCC → đọc giá trị tag đã giải nén qua **WinCC OLE-DB Provider** (read-only) → tính thống kê → **POST lên n8n webhook**. Mỗi 15 phút tự `git pull` từ GitHub private để cập nhật.
+Service tự cập nhật (OTA) chạy trên **máy trạm** (online, cùng LAN với máy WinCC offline). Snapshot read-only được gửi mỗi 10 giây khi Dakrosa2 Runtime khỏe, tối đa 30 giây ở luồng còn lại; raw dump bổ sung chạy mặc định mỗi 5 phút. OTA kiểm tra GitHub private tối đa mỗi 3 phút; cơ chế cập nhật và NSSM restart giữ nguyên.
 
 ```
 GitHub private (OTA) ──git pull──► [Máy trạm: NSSM service]
-                                      • 5p : ssh winccbox → py32 OLE-DB → stats → POST n8n
-                                      • 15p: git pull → đồng bộ box → tự restart
+                                      • 10–30s: py32 Runtime/OLE-DB → stats → POST n8n
+                                      • 5p : raw dump bổ sung → POST dashboard
+                                      • 3p : git pull → đồng bộ box → tự restart
                                           │ ssh/scp (LAN, read-only)
                                           ▼
                                    [Máy WinCC offline: py32 + OLE-DB reader]

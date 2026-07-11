@@ -18,6 +18,9 @@ from bridge import config, collect, poster, runtime_canary, updater
 # hon (vd 15s), KHONG cham hon tran. Floor 10s de khong don dap may WinCC.
 SNAPSHOT_SEC_MAX = 30
 DAKROSA2_RUNTIME_SNAPSHOT_SEC_MAX = 10
+# OTA config tren cac tram cu dang la 900s.  Code cap tran 180s de ban moi tu
+# hieu luc sau mot lan update ma khong can sua config/NSSM tren tung may.
+OTA_SEC_MAX = 180
 # Chu ky gui RAW DUMP (blob TagCompressed b64) len server decode - chay o MOI
 # tram (ke ca tram provider nhu Dakrosa1: dump la kenh phu doc lap, khai thac
 # du tag ma provider khong tra - tan so, nhiet do, cong to...). Config
@@ -50,6 +53,15 @@ def effective_snap_iv(cfg, runtime_active=False):
                       str(station.get("read_mode", "")).strip().lower() == "raw")
     ceiling = DAKROSA2_RUNTIME_SNAPSHOT_SEC_MAX if native_runtime else SNAPSHOT_SEC_MAX
     return max(10, min(want, ceiling))
+
+
+def effective_ota_iv(cfg):
+    """Cap OTA check at three minutes while preserving faster safe overrides."""
+    try:
+        want = int(cfg.get("intervals", {}).get("ota_sec", OTA_SEC_MAX))
+    except (TypeError, ValueError):
+        want = OTA_SEC_MAX
+    return max(60, min(want, OTA_SEC_MAX))
 
 
 def _raw_ship_once(cfg):
@@ -193,7 +205,7 @@ def main():
     if runtime_canary.start(cfg, log_fn=log):
         atexit.register(runtime_canary.stop, log_fn=log)
     snap_iv = effective_snap_iv(cfg)
-    ota_iv = int(cfg["intervals"].get("ota_sec", 900))
+    ota_iv = effective_ota_iv(cfg)
     ota_on = bool(cfg.get("ota", {}).get("enabled"))
     raw_iv = raw_ship_iv(cfg)
     log(f"WinCC Bridge start | snapshot={snap_iv}s ota={ota_iv}s "

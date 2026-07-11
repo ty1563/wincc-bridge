@@ -84,6 +84,24 @@ class RawShipWorkerTests(unittest.TestCase):
 
         self.assertEqual(service.effective_snap_iv(cfg), 30)
 
+    def test_existing_fifteen_minute_ota_config_is_capped_at_three_minutes(self):
+        cfg = {"intervals": {"ota_sec": 900}}
+
+        self.assertEqual(service.effective_ota_iv(cfg), 180)
+
+    def test_missing_ota_interval_defaults_to_three_minutes(self):
+        self.assertEqual(service.effective_ota_iv({"intervals": {}}), 180)
+
+    def test_explicit_faster_ota_interval_remains_available(self):
+        cfg = {"intervals": {"ota_sec": 120}}
+
+        self.assertEqual(service.effective_ota_iv(cfg), 120)
+
+    def test_ota_interval_has_one_minute_safety_floor(self):
+        cfg = {"intervals": {"ota_sec": 30}}
+
+        self.assertEqual(service.effective_ota_iv(cfg), 60)
+
     def test_one_snapshot_returns_runtime_mode_for_adaptive_cadence(self):
         cfg = {"station": {"name": "Dakrosa2"}}
         snap = {"read_mode": "runtime", "tags": {"u1_P": {"last": 790.0}}}

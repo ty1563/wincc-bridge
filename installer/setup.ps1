@@ -141,7 +141,7 @@ reader = "C:/Users/$wincUser/wincc-bridge/box/oledb_reader.py"
 
 [intervals]
 snapshot_sec = 300
-ota_sec = 900
+ota_sec = 180
 
 [ota]
 enabled = true
