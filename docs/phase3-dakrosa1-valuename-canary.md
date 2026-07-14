@@ -1,6 +1,7 @@
 # Phase 3: Dakrosa1 OLEDB ValueName canary
 
-Candidate bridge release: `1.5.18` (**operator-authorized canary**).
+Released bridge version: `1.5.18` (**operator-authorized canary**), commit
+`c6af40f`.
 
 ## Release evidence and controlled rollout
 
@@ -159,3 +160,21 @@ or WinCC binaries to make this canary appear.
   production monitoring are required before promotion.
 - `test_e2e.py` remains environment-dependent because the isolated worktree has
   no production `config.local.toml`.
+
+## Production result for 1.5.18
+
+Both stations completed OTA without changing their prior snapshot paths. Two
+fresh Dakrosa1 raw shipments after release, received at `10:23:08Z` and
+`10:44:14Z` on `2026-07-14`, each retained 21/21 ValueIDs without truncation.
+The normal D1 snapshot remained healthy with 21 source tags and 29 tags after
+server-side derivation.
+
+The OLEDB canary completed in both cycles but no candidate passed promotion:
+
+- `bus_F`: `no_data`.
+- `u2_GV`: value 100, quality 128, `bad_quality`, and about two hours stale.
+- `u1_F`, `u2_F`, and `u3_F`: `query_error` with code `0x80020009`.
+- Aggregate result: five attempted, one observed, zero good.
+
+These results remain diagnostic-only. Dakrosa1 did not gain a DMCLIENT Runtime
+path, and no fallback value was merged into its canonical snapshot.

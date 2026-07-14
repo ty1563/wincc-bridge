@@ -1,6 +1,6 @@
 # Phase 4: Dakrosa2 MHY_2 and start-sequence diagnostic canary
 
-Candidate release: `1.5.18`.
+Released version: `1.5.18`, commit `c6af40f`.
 
 This release expands only the bounded, read-only `runtime_probe.exact`
 diagnostic payload for `Dakrosa2`. It does not publish a new canonical tag,
@@ -178,3 +178,33 @@ Changing `version.txt` is a fleet-wide trigger. After pushing `1.5.18`:
 If a regression appears, revert the diagnostic commit, publish a higher
 version, and verify both stations again. Never downgrade `version.txt` or
 modify the updater, service registration, or WinCC installation in place.
+
+## Production result for 1.5.18
+
+Both stations reported `1.5.18` by `2026-07-14T10:18:31Z`. Dakrosa1 retained
+21 source tags, 29 tags after server derivation, and no snapshot error.
+Dakrosa2 retained 155 canonical tags and no snapshot error. In the snapshot
+received at `10:45:50.892Z`, its restarted callback session had advanced to
+3,337 callbacks and 13,348 items with zero callback errors, zero oversized
+callbacks, and a latest callback age of 0.125 seconds.
+
+Two fresh Dakrosa2 diagnostic shipments were reviewed:
+
+| Received | Dump time | Exact result | Archive result |
+| --- | --- | --- | --- |
+| `10:19:28Z` | `10:18:37Z` | 83 requested, 82 found | 359/359 ValueIDs, 1,103 blocks |
+| `10:44:48Z` | `10:43:57Z` | 83 requested, 82 found | 360/360 ValueIDs, 1,096 blocks |
+
+Both shipments used project `WInCC_Backup_30_10_2020.mcp`, were not truncated,
+had no denied names, and missed only `DCTC-`. Of the 59 new exact names, the
+other 58 retained identical type and type size, `state=0`, finite values, and
+no per-tag error in both shipments. Four values moved plausibly between the
+two samples: `realopening1`, `realopening3`, `H2-Frequ`, and `H3-Frequ`.
+
+Six start-sequence sources fail the recovered-use type gate:
+`H1OpMvalve`, `H2OpMvalve`, `H3OpMvalve`, `H1Opvalve`, `H2Opvalve`, and
+`H3Opvalve` are Runtime Binary Tags, while the PDL expressions test bit 6 as
+if they were integer words. They remain diagnostic-only together with the
+missing `DCTC-`. The other 52 sources passed the two-cycle type/state/value
+gate and are candidates for a separate canonical-mapping review; this release
+does not promote them automatically.
