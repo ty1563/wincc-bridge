@@ -37,8 +37,11 @@ instead implemented in the standalone `box/d1_oledb_canary.py` helper:
 
 1. `bridge.collect.collect_rawdump()` first runs and successfully parses the
    existing reader output.
-2. Only exact `station.name = Dakrosa1` may launch the helper. Missing station
-   identity fails closed; remote mode is not treated as an alias for Dakrosa1.
+2. Exact identity may come from `station.name = Dakrosa1` or from the already
+   parsed raw payload's exact `station = Dakrosa1`. This supports the deployed
+   legacy config, which has no `[station]` section, without inferring identity
+   from remote mode, IP address, reader path, or any station alias. Conflicting
+   config/payload identities or two missing identities fail closed.
 3. The helper requires both `--station Dakrosa1` and `--raw-canary` and uses the
    same 32-bit Python as the reader.
 4. The helper is a second process with a 15-second hard parent timeout. A
@@ -120,9 +123,9 @@ or WinCC binaries to make this canary appear.
 
 ## Verification
 
-- Focused helper, raw collector, and station-sync suite: 30 tests.
+- Focused helper, raw collector, and station-sync suite: 32 tests.
 - Python 3.7 grammar and byte compilation cover the helper and integration.
-- Full non-environment unit suite: 98 tests. Diff safety audit, review, and
+- Full non-environment unit suite: 100 tests. Diff safety audit, review, and
   production monitoring are required before promotion.
 - `test_e2e.py` remains environment-dependent because the isolated worktree has
   no production `config.local.toml`.

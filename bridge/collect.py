@@ -178,9 +178,13 @@ def _config_enabled(value, default=False):
     return bool(value)
 
 
-def _d1_oledb_probe_enabled(cfg):
+def _d1_oledb_probe_enabled(cfg, observed_station=None):
     station = cfg.get("station", {})
-    if str(station.get("name") or "").strip().lower() != "dakrosa1":
+    configured = str(station.get("name") or "").strip().lower()
+    observed = str(observed_station or "").strip().lower()
+    if configured and observed and configured != observed:
+        return False
+    if (configured or observed) != "dakrosa1":
         return False
     return _config_enabled(station.get("d1_oledb_value_probe"), default=True)
 
@@ -208,9 +212,9 @@ def _reject_json_constant(value):
     raise ValueError("non-standard JSON constant: %s" % value)
 
 
-def _collect_d1_oledb_probe(cfg, remote_base=None):
+def _collect_d1_oledb_probe(cfg, remote_base=None, observed_station=None):
     """Run the D1 canary after raw capture; every failure returns diagnostics."""
-    if not _d1_oledb_probe_enabled(cfg):
+    if not _d1_oledb_probe_enabled(cfg, observed_station=observed_station):
         return None
     w = cfg["winccbox"]
     helper = _d1_oledb_helper_path(w["reader"])
@@ -276,7 +280,9 @@ def collect_rawdump(cfg):
         if not isinstance(dump, dict):
             raise ValueError("rawdump root is not an object")
         if "oledb_value_probe" not in dump:
-            probe = _collect_d1_oledb_probe(cfg, remote_base=remote_base)
+            probe = _collect_d1_oledb_probe(
+                cfg, remote_base=remote_base,
+                observed_station=dump.get("station"))
             if probe is not None:
                 dump["oledb_value_probe"] = probe
         return dump

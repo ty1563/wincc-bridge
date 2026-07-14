@@ -141,7 +141,7 @@ class D1OleDbCanaryCollectionTests(unittest.TestCase):
                     "run",
                     return_value=self.result(raw),
                 ) as run:
-            result = collect.collect_rawdump(self.cfg(station="Dakrosa2"))
+            result = collect.collect_rawdump(self.cfg())
 
         self.assertNotIn("oledb_value_probe", result)
         self.assertEqual(run.call_count, 1)
@@ -180,7 +180,7 @@ class D1OleDbCanaryCollectionTests(unittest.TestCase):
         self.assertEqual(result["oledb_value_probe"], existing)
         self.assertEqual(run.call_count, 1)
 
-    def test_missing_station_name_fails_closed(self):
+    def test_missing_config_and_payload_station_fails_closed(self):
         raw = {"raw_dump": True, "blocks": []}
         cfg = self.cfg()
         cfg["station"].pop("name")
@@ -192,6 +192,37 @@ class D1OleDbCanaryCollectionTests(unittest.TestCase):
                     return_value=self.result(raw),
                 ) as run:
             result = collect.collect_rawdump(cfg)
+
+        self.assertNotIn("oledb_value_probe", result)
+        self.assertEqual(run.call_count, 1)
+
+    def test_legacy_config_uses_exact_parsed_payload_station(self):
+        raw = {"station": "Dakrosa1", "raw_dump": True, "blocks": []}
+        probe = {"available": False, "backend": "wincc-oledb-valuename"}
+        cfg = self.cfg()
+        cfg.pop("station")
+
+        with mock.patch.object(collect, "_ssh_base", return_value=["ssh", "target"]), \
+                mock.patch.object(
+                    collect.subprocess,
+                    "run",
+                    side_effect=[self.result(raw), self.result(probe)],
+                ) as run:
+            result = collect.collect_rawdump(cfg)
+
+        self.assertEqual(result["oledb_value_probe"], probe)
+        self.assertEqual(run.call_count, 2)
+
+    def test_conflicting_config_and_payload_station_fails_closed(self):
+        raw = {"station": "Dakrosa1", "raw_dump": True, "blocks": []}
+
+        with mock.patch.object(collect, "_ssh_base", return_value=["ssh", "target"]), \
+                mock.patch.object(
+                    collect.subprocess,
+                    "run",
+                    return_value=self.result(raw),
+                ) as run:
+            result = collect.collect_rawdump(self.cfg(station="Dakrosa2"))
 
         self.assertNotIn("oledb_value_probe", result)
         self.assertEqual(run.call_count, 1)
