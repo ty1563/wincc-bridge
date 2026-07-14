@@ -495,8 +495,9 @@ BASE_SCADA_DIAGNOSTIC_TAGS = (
     "dongKTH3",
 )
 
-# MHY_2.PDL: ten tag/slot/bit semantics are proven, but current Runtime
-# type/state/value health is not.  Keep these diagnostic-only for the canary.
+# MHY_2.PDL inventory remains in the exact probe for regression evidence.
+# Twelve healthy sources are also promoted through the project-gated curated
+# specs above; DCTC- stays diagnostic because Runtime did not expose it.
 MHY2_DIAGNOSTIC_TAGS = (
     "ACfrequency",
     "outfrequency",
@@ -513,9 +514,10 @@ MHY2_DIAGNOSTIC_TAGS = (
     "Warning",
 )
 
-# A_H1/H2/H3_chart_kd.PDL: read-only sources for the unresolved start
-# sequence indicators.  H1Brakeopen is intentionally absent because the H1
-# picture references H2Brakeopen; all Click*/command actions stay excluded.
+# A_H1/H2/H3_chart_kd.PDL inventory remains in the exact probe.  Forty healthy
+# sources are also project-gated above.  H1Brakeopen is intentionally absent
+# because H1 references H2Brakeopen; the six type-mismatched valve sources stay
+# diagnostic, and all Click*/command actions stay excluded.
 START_SEQUENCE_DIAGNOSTIC_TAGS = (
     "H1comgroup2", "H2comgroup2", "H3comgroup1",
     "H1Brakeoff", "H2Brakeoff", "H3Brakeoff",
