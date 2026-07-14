@@ -18,9 +18,9 @@ status. The complete Dakrosa2 exact list increases from 83 to 87 names.
 
 `Connect` is an exact native source in recovered `CUA DAP.PDL` (SHA-256
 `A6A8A54E8CFA769D29437713336B26C4AB8AB3244D78E08332735AFE36BB5002`).
-Its native lamp uses red for true and light gray for false, so true represents
-the displayed connection-fault state. This polarity is recorded for later
-review but is not promoted in this release.
+Its native lamp renders true as red and false as light gray. That proves only
+the display polarity; the process meaning remains unresolved. The polarity is
+recorded for later review but is not promoted in this release.
 
 `EVENT_TYPE_MH1` is the fourth, blue curve in recovered `PA5_bld04.PDL`
 (SHA-256
