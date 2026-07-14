@@ -569,12 +569,24 @@ H2_DIRECTIONAL_ENERGY_DIAGNOSTIC_TAGS = (
     "MVARHNX_INTER_MH2",
 )
 
+# Direct OutputValue links from the three unit parameter pictures.  KWA is a
+# native name only: the PDL labels those fields QA/QC in kVAr, not kVA.  Keep
+# every source diagnostic until Runtime proves type/state and no unit/scale is
+# assigned here.  H1_temp11 and KVArh are included for availability evidence.
+PARAMETER_SCREEN_DIAGNOSTIC_TAGS = (
+    "H1_temp11",
+    "H1-KW1", "H1-KWA1", "H1-KW3", "H1-KWA3", "H1-KVArh",
+    "H2-KW1", "H2-KWA1", "H2-KW3", "H2-KWA3", "H2-KVArh",
+    "H3-KW1", "H3-KWA1", "H3-KW3", "H3-KWA3", "H3-KVArh",
+)
+
 SCADA_DIAGNOSTIC_TAGS = (
     BASE_SCADA_DIAGNOSTIC_TAGS +
     MHY2_DIAGNOSTIC_TAGS +
     START_SEQUENCE_DIAGNOSTIC_TAGS +
     OPERATOR_DIAGNOSTIC_TAGS +
-    H2_DIRECTIONAL_ENERGY_DIAGNOSTIC_TAGS
+    H2_DIRECTIONAL_ENERGY_DIAGNOSTIC_TAGS +
+    PARAMETER_SCREEN_DIAGNOSTIC_TAGS
 )
 
 class WinCCRuntimeAPI:

@@ -1200,7 +1200,7 @@ class WinCCRuntimeProbeTests(unittest.TestCase):
             candidate_limit=0,
         )
 
-        self.assertEqual(result["exact"]["requested"], 90)
+        self.assertEqual(result["exact"]["requested"], 106)
         self.assertEqual(result["exact"]["found"], 4)
         self.assertEqual(
             [item["name"] for item in result["exact"]["tags"]],
@@ -1234,6 +1234,86 @@ class WinCCRuntimeProbeTests(unittest.TestCase):
         )
         self.assertEqual(mismatch_result["exact"]["requested"], 0)
         self.assertEqual(mismatched.read_names, [])
+
+    def test_parameter_screen_diagnostics_are_exact_and_not_canonical(self):
+        self.assertEqual(
+            wincc_runtime.PARAMETER_SCREEN_DIAGNOSTIC_TAGS,
+            (
+                "H1_temp11",
+                "H1-KW1", "H1-KWA1", "H1-KW3", "H1-KWA3", "H1-KVArh",
+                "H2-KW1", "H2-KWA1", "H2-KW3", "H2-KWA3", "H2-KVArh",
+                "H3-KW1", "H3-KWA1", "H3-KW3", "H3-KWA3", "H3-KVArh",
+            ),
+        )
+        canonical_sources = {
+            spec["name"] for spec in wincc_runtime.STATION2_CURATED_SPECS
+        }
+        self.assertTrue(
+            set(wincc_runtime.PARAMETER_SCREEN_DIAGNOSTIC_TAGS).isdisjoint(
+                canonical_sources
+            )
+        )
+
+    def test_parameter_screen_diagnostics_preserve_runtime_type_state_and_value(self):
+        class ParameterAPI:
+            def __init__(self):
+                self.read_names = []
+
+            def connect(self):
+                pass
+
+            def disconnect(self):
+                pass
+
+            def runtime_project(self):
+                return r"C:\SCADA\Dakrosa2\WInCC_Backup_30_10_2020.mcp"
+
+            def enumerate_tags(self, project):
+                return [
+                    {"id": index, "name": name}
+                    for index, name in enumerate(
+                        wincc_runtime.PARAMETER_SCREEN_DIAGNOSTIC_TAGS,
+                        1,
+                    )
+                ]
+
+            def tag_type(self, project, tag):
+                return {"code": 8, "name": "Float", "size": 4}
+
+            def read_numeric(self, name, type_code):
+                self.read_names.append(name)
+                value = float(
+                    wincc_runtime.PARAMETER_SCREEN_DIAGNOSTIC_TAGS.index(name)
+                ) + 0.25
+                return {"value": value, "state": 0, "quality": 192}
+
+        api = ParameterAPI()
+        result = probe_runtime(
+            api_factory=lambda: api,
+            station_name="Dakrosa2",
+            inventory_limit=0,
+            candidate_limit=0,
+        )
+
+        self.assertEqual(result["exact"]["requested"], 106)
+        self.assertEqual(result["exact"]["found"], 16)
+        self.assertEqual(
+            api.read_names,
+            list(wincc_runtime.PARAMETER_SCREEN_DIAGNOSTIC_TAGS),
+        )
+        self.assertEqual(
+            [
+                (item["name"], item["type_code"], item["value"],
+                 item["state"], item["quality"])
+                for item in result["exact"]["tags"]
+            ],
+            [
+                (name, 8, float(index) + 0.25, 0, 192)
+                for index, name in enumerate(
+                    wincc_runtime.PARAMETER_SCREEN_DIAGNOSTIC_TAGS
+                )
+            ],
+        )
 
     def test_operator_diagnostics_are_read_only_on_the_exact_dakrosa2_project(self):
         class OperatorAPI:
@@ -1280,7 +1360,7 @@ class WinCCRuntimeProbeTests(unittest.TestCase):
             candidate_limit=0,
         )
 
-        self.assertEqual(result["exact"]["requested"], 90)
+        self.assertEqual(result["exact"]["requested"], 106)
         self.assertEqual(result["exact"]["found"], 3)
         self.assertEqual(result["exact"]["missing"], [
             name for name in wincc_runtime.SCADA_DIAGNOSTIC_TAGS
@@ -1303,13 +1383,16 @@ class WinCCRuntimeProbeTests(unittest.TestCase):
         names = wincc_runtime.SCADA_DIAGNOSTIC_TAGS
         folded = [name.lower() for name in names]
 
-        self.assertEqual(len(names), 90)
+        self.assertEqual(len(names), 106)
         self.assertEqual(len(folded), len(set(folded)))
         self.assertTrue(set(wincc_runtime.MHY2_DIAGNOSTIC_TAGS) <= set(names))
         self.assertTrue(set(wincc_runtime.START_SEQUENCE_DIAGNOSTIC_TAGS) <= set(names))
         self.assertTrue(set(wincc_runtime.OPERATOR_DIAGNOSTIC_TAGS) <= set(names))
         self.assertTrue(
             set(wincc_runtime.H2_DIRECTIONAL_ENERGY_DIAGNOSTIC_TAGS) <= set(names)
+        )
+        self.assertTrue(
+            set(wincc_runtime.PARAMETER_SCREEN_DIAGNOSTIC_TAGS) <= set(names)
         )
         self.assertFalse(any("command" in name or name.startswith("click") for name in folded))
 
