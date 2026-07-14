@@ -1,0 +1,164 @@
+# Phase 4: Dakrosa2 MHY_2 and start-sequence diagnostic canary
+
+Candidate release: `1.5.18`.
+
+This release expands only the bounded, read-only `runtime_probe.exact`
+diagnostic payload for `Dakrosa2`. It does not publish a new canonical tag,
+does not change the normal Runtime snapshot, and does not write to WinCC.
+
+## Release boundary
+
+- `probe_runtime()` enables the default exact list only when the observed
+  station name is exactly `Dakrosa2` (case-insensitive).
+- Dakrosa1 continues to request zero default exact diagnostic tags.
+- The existing updater, OTA interval, NSSM service, installer, reader mode,
+  callback canary, and WinCC binaries are unchanged.
+- `Click*` and every name containing `command` are hard-denied at the exact
+  probe boundary. No setpoint or mouse-event tag is included.
+- The 59 new names remain diagnostic-only. A later reviewed release may
+  promote only sources that pass the runtime evidence gates below.
+
+The complete diagnostic list becomes 83 exact names: 24 already-live SCADA
+diagnostics, 13 MHY_2 sources, and 46 start-sequence sources.
+
+## Authoritative PDL evidence
+
+MHY_2 source:
+
+`outputs/dakrosa2_dump_carve/pdl/MHY_2.PDL`
+
+SHA-256:
+
+`59468B80C9805C9EE1FEAE31E77EDB4A7A40D5BD7DA3E816799A2CA64F62F80A`
+
+The older extractor stopped after record 14. Direct inspection of the full
+DynamicsStream plus `AP_INPROC_ADMIN` and `AP_INPROC_SCODE` proves records
+17-20 and 27-34 below. The V11 result order was independently cross-checked
+against the known set/clear expression pairs in `A_H2_chart_kd.PDL`.
+
+### MHY_2 visible states
+
+| Visible state | Exact source | Active condition |
+| --- | --- | --- |
+| Lỗi nguồn AC | `DCfault` | set / true |
+| Lỗi nguồn DC | `H1Spare19` | set / true |
+| Lỗi chỉnh lưu | `H1Spare19` | set / true |
+| Lỗi chung hệ thống một chiều | `DCfault` | set / true |
+| Máy cắt TD41 đóng | `H1Spare19` | set / true |
+| Máy cắt TD46 đóng | `H1Spare19` | set / true |
+| Inverter bypass | `Warning` | bit 0 set |
+| Inverter | `Warning` | bit 0 clear |
+| Overload | `Warning` | bit 6 set |
+| Inverter quá nhiệt | `Warning` | bit 8 set |
+| Inverter lỗi | `Warning` | bit 3 set |
+| Quạt chạy | `Warning` | bit 1 set |
+
+The repeated wiring is intentional evidence from the recovered PDL:
+`H1Spare19` drives four visible lamps and `DCfault` drives two. Do not split
+these into invented aliases. `AUX_LCU41_IW0` has no proven relationship to
+the three sources above.
+
+### MHY_2 missing numeric slots
+
+| Native slot | Exact source | Unit |
+| --- | --- | --- |
+| IOField1 | `ACfrequency` | Hz |
+| IOField2 | `outfrequency` | Hz |
+| IOField3 | `Outvoltage` | V |
+| IOField4 | `DCTC-` | A |
+| IOField5 and IOField8 | `DCinput` | V |
+| IOField6 | `ACviltagein` | V |
+| IOField7 | `powerout` | % |
+| IOField9 | `Outcurent` | A |
+| IOField13 | `tempin` | °C |
+| IOField14 | `tempout` | °C |
+
+All use native `WinCC digital 1` formatting. The two spellings
+`ACviltagein` and `Outcurent` are native project names and must not be fixed
+or normalized at the Runtime boundary.
+
+## Start-sequence evidence
+
+Sources come from the recovered `A_H1_chart_kd.PDL`,
+`A_H2_chart_kd.PDL`, and `A_H3_chart_kd.PDL` action streams.
+
+### Direct state groups
+
+| Meaning | H1 | H2 | H3 | Active condition |
+| --- | --- | --- | --- | --- |
+| secondary group word | `H1comgroup2` | `H2comgroup2` | `H3comgroup1` | bit 2 set |
+| brake released | `H1Brakeoff` | `H2Brakeoff` | `H3Brakeoff` | true |
+| local selection | `H1local` | `H2local` | `H3local` | true |
+| remote selection | `H1remote` | `H2remote` | `H3remote` | true |
+| no unit fault | `H1Spare7` | `H2Spare7` | `H3Spare7` | true; false is red |
+| main valve command word | `H1OpMvalve` | `H2OpMvalve` | `H3OpMvalve` | bit 6 set |
+| valve command word | `H1Opvalve` | `H2Opvalve` | `H3Opvalve` | bit 6 set |
+| excitation breaker state | `H1DeExcitff` | `H2DeExcitff` | `H3DeExcitff` | set and clear drive paired lamps |
+| brake open | excluded | `H2Brakeopen` | `H3Brakeopen` | true |
+| synchronizing start | `H1Startsyn` | `H2Startsyn` | `H3Startsyn` | true |
+| spring restore | `H1Spristore` | `H2Spristore` | `H3Spristore` | true |
+| spring charged | `H1Springcharg` | `H2Springcharg` | `H3Springcharg` | true |
+
+H1 `Brakeopen` is intentionally excluded: the H1 picture references
+`H2Brakeopen`, which is a recovered copy artifact and cannot be canonicalized
+as an H1 state.
+
+### Script state groups
+
+- `HnMVopen == 1 && HnMVclose == 0` drives the main-valve-open state.
+- `12 <= realopeningN <= 16` drives one guide-vane condition.
+- `8 <= realopeningN <= 16` drives the adjacent guide-vane condition.
+- H2/H3 use exact `H2-Frequ` / `H3-Frequ` for the `>49 Hz` condition.
+- `49.5 <= Hn-Speed <= 50.5` uses the already curated exact speed source.
+
+Never alias `realopeningN` to `uN_GV`, or `Hn-Frequ` to another frequency
+source, without fresh same-snapshot equality evidence.
+
+## Pre-release production baseline
+
+Observed at `2026-07-14T09:50Z` before the candidate release:
+
+- Dakrosa1 `1.5.17`: online, no snapshot error.
+- Dakrosa2 `1.5.17`: online with 155 canonical tags, Runtime snapshot healthy,
+  callback errors 0, oversized callbacks 0.
+- Existing Dakrosa2 raw diagnostic: 24 requested, 24 found, no missing names.
+- Full process inventory is intentionally suppressed from the public raw
+  payload; the 13 MHY_2 sources were not in the top-128 heuristic candidate
+  subset. That absence is not evidence that the tags are missing.
+- Direct inbound access to the historical Dakrosa2 host was unavailable from
+  the current network, so no one-off remote command was used.
+
+## Runtime evidence gate after OTA
+
+Wait for a fresh Dakrosa2 raw shipment whose `received_at` is later than the
+`1.5.18` OTA event, then inspect `runtime_probe.exact`.
+
+For every source record:
+
+1. Exact name must appear in `tags`, not `missing`.
+2. Type must match the recovered use: binary for direct booleans, an integer
+   word for bit expressions, and a finite numeric type for IO fields.
+3. Runtime state must be `0` in at least two fresh shipments.
+4. Numeric values must remain finite and physically plausible. Stable binary
+   states are allowed; a witnessed transition is stronger evidence but is not
+   required when PDL polarity is already exact.
+5. Failed, missing, stale, or type-mismatched sources remain diagnostic-only.
+
+Promotion must preserve raw source semantics first. Bit decoding and display
+labels belong in a separately reviewed bridge/portal release.
+
+## Fleet OTA verification
+
+Changing `version.txt` is a fleet-wide trigger. After pushing `1.5.18`:
+
+1. Confirm Dakrosa1 advances to `1.5.18`, keeps receiving snapshots, retains
+   its prior tag count, and has no error. It must not gain Runtime diagnostic
+   reads.
+2. Confirm Dakrosa2 advances to `1.5.18`, keeps 155 canonical tags and healthy
+   callback counters, then wait for the fresh raw diagnostic shipment.
+3. Confirm `runtime_probe.exact.requested == 83`, with no denied command tags.
+4. Record found/missing/type/state/value results before any canonical mapping.
+
+If a regression appears, revert the diagnostic commit, publish a higher
+version, and verify both stations again. Never downgrade `version.txt` or
+modify the updater, service registration, or WinCC installation in place.
