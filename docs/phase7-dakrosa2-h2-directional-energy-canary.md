@@ -82,3 +82,30 @@ After both stations report `1.5.22`:
 If either station regresses, publish a separately reviewed higher version.
 Never downgrade `version.txt` or modify the installed OTA/service mechanism in
 place.
+
+## Production result for 1.5.22
+
+Both stations advanced through the existing OTA path without direct host
+access.  Dakrosa2 first reported `1.5.22` at `2026-07-14T15:37:31.805Z`;
+Dakrosa1 reported it at `15:38:07.905Z`.
+
+- Dakrosa1 retained 29 published tags and no snapshot error.
+- Dakrosa2 retained 208 published tags in Runtime mode, with 193 curated
+  attempts, 190 accepted samples, and zero callback errors.
+- The exact list increased to 90 as designed, found 89 names, denied none,
+  and continued to miss only `DCTC-`.
+
+Two independent post-OTA raw shipments were reviewed:
+
+| Received | Dump time | Exact result | Four H2 sources |
+| --- | --- | --- | --- |
+| `15:39:01.938Z` | `15:38:10Z` | 90 requested, 89 found | UInt32, size 4, value 0, state 0 |
+| `15:44:00.560Z` | `15:43:10Z` | 90 requested, 89 found | UInt32, size 4, value 0, state 0 |
+
+All four sources pass the Runtime availability, type, and state transport
+gate.  They remain diagnostic-only: both samples are unchanged zero, while
+the parallel archive evidence for the directional-energy family is not an
+independent corroboration because multiple names decoded from identical
+blocks and values.  A zero is therefore not yet treated as a trustworthy
+operator counter or rendered in the portal.  No canonical key is authorized
+by this result.
