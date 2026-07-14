@@ -391,10 +391,10 @@ def _station2_curated_specs():
 
 STATION2_CURATED_SPECS = _station2_curated_specs()
 CALLBACK_CANARY_TAGS = ("LV-KW", "H1-KW", "H2-KW", "H3-KW")
-# Read-only names recovered from Dakrosa2/A_22kV.PDL.  This diagnostic list is
-# deliberately separate from the curated snapshot until live type/state/value
-# evidence has been reviewed.  Never add Click* command tags here.
-SCADA_DIAGNOSTIC_TAGS = (
+# Read-only names recovered from Dakrosa2 PDLs.  Diagnostic tags stay separate
+# from the curated snapshot until live type/state/value evidence has been
+# reviewed.  Never add Click*, command, or setpoint channels here.
+BASE_SCADA_DIAGNOSTIC_TAGS = (
     "471close",
     "H1QFclose",
     "H2QFclose",
@@ -419,6 +419,52 @@ SCADA_DIAGNOSTIC_TAGS = (
     "dongKTH1",
     "dongKTH2",
     "dongKTH3",
+)
+
+# MHY_2.PDL: ten tag/slot/bit semantics are proven, but current Runtime
+# type/state/value health is not.  Keep these diagnostic-only for the canary.
+MHY2_DIAGNOSTIC_TAGS = (
+    "ACfrequency",
+    "outfrequency",
+    "Outvoltage",
+    "DCTC-",
+    "DCinput",
+    "ACviltagein",
+    "powerout",
+    "Outcurent",
+    "tempin",
+    "tempout",
+    "DCfault",
+    "H1Spare19",
+    "Warning",
+)
+
+# A_H1/H2/H3_chart_kd.PDL: read-only sources for the unresolved start
+# sequence indicators.  H1Brakeopen is intentionally absent because the H1
+# picture references H2Brakeopen; all Click*/command actions stay excluded.
+START_SEQUENCE_DIAGNOSTIC_TAGS = (
+    "H1comgroup2", "H2comgroup2", "H3comgroup1",
+    "H1Brakeoff", "H2Brakeoff", "H3Brakeoff",
+    "H1local", "H2local", "H3local",
+    "H1remote", "H2remote", "H3remote",
+    "H1Spare7", "H2Spare7", "H3Spare7",
+    "H1OpMvalve", "H2OpMvalve", "H3OpMvalve",
+    "H1Opvalve", "H2Opvalve", "H3Opvalve",
+    "H1DeExcitff", "H2DeExcitff", "H3DeExcitff",
+    "H2Brakeopen", "H3Brakeopen",
+    "H1Startsyn", "H2Startsyn", "H3Startsyn",
+    "H1Spristore", "H2Spristore", "H3Spristore",
+    "H1Springcharg", "H2Springcharg", "H3Springcharg",
+    "H1MVopen", "H2MVopen", "H3MVopen",
+    "H1MVclose", "H2MVclose", "H3MVclose",
+    "realopening1", "realopening2", "realopening3",
+    "H2-Frequ", "H3-Frequ",
+)
+
+SCADA_DIAGNOSTIC_TAGS = (
+    BASE_SCADA_DIAGNOSTIC_TAGS +
+    MHY2_DIAGNOSTIC_TAGS +
+    START_SEQUENCE_DIAGNOSTIC_TAGS
 )
 
 
@@ -792,7 +838,7 @@ def _exact_probe(api, project, tags, names, read_values):
         folded = name.lower()
         if name and folded not in seen:
             seen.add(folded)
-            if folded.startswith("click"):
+            if folded.startswith("click") or "command" in folded:
                 denied.append(name)
             else:
                 requested.append(name)

@@ -773,6 +773,91 @@ class WinCCRuntimeProbeTests(unittest.TestCase):
         self.assertTrue({"apsuat1", "apsuat2", "domo"} <= folded)
         self.assertFalse(any(name.startswith("click") for name in folded))
 
+    def test_mhy2_diagnostic_allowlist_matches_recovered_read_only_sources(self):
+        self.assertEqual(
+            wincc_runtime.MHY2_DIAGNOSTIC_TAGS,
+            (
+                "ACfrequency",
+                "outfrequency",
+                "Outvoltage",
+                "DCTC-",
+                "DCinput",
+                "ACviltagein",
+                "powerout",
+                "Outcurent",
+                "tempin",
+                "tempout",
+                "DCfault",
+                "H1Spare19",
+                "Warning",
+            ),
+        )
+
+    def test_start_sequence_diagnostic_allowlist_matches_recovered_sources(self):
+        self.assertEqual(
+            wincc_runtime.START_SEQUENCE_DIAGNOSTIC_TAGS,
+            (
+                "H1comgroup2", "H2comgroup2", "H3comgroup1",
+                "H1Brakeoff", "H2Brakeoff", "H3Brakeoff",
+                "H1local", "H2local", "H3local",
+                "H1remote", "H2remote", "H3remote",
+                "H1Spare7", "H2Spare7", "H3Spare7",
+                "H1OpMvalve", "H2OpMvalve", "H3OpMvalve",
+                "H1Opvalve", "H2Opvalve", "H3Opvalve",
+                "H1DeExcitff", "H2DeExcitff", "H3DeExcitff",
+                "H2Brakeopen", "H3Brakeopen",
+                "H1Startsyn", "H2Startsyn", "H3Startsyn",
+                "H1Spristore", "H2Spristore", "H3Spristore",
+                "H1Springcharg", "H2Springcharg", "H3Springcharg",
+                "H1MVopen", "H2MVopen", "H3MVopen",
+                "H1MVclose", "H2MVclose", "H3MVclose",
+                "realopening1", "realopening2", "realopening3",
+                "H2-Frequ", "H3-Frequ",
+            ),
+        )
+
+    def test_default_diagnostic_allowlist_contains_new_sources_once(self):
+        names = wincc_runtime.SCADA_DIAGNOSTIC_TAGS
+        folded = [name.lower() for name in names]
+
+        self.assertEqual(len(folded), len(set(folded)))
+        self.assertTrue(set(wincc_runtime.MHY2_DIAGNOSTIC_TAGS) <= set(names))
+        self.assertTrue(set(wincc_runtime.START_SEQUENCE_DIAGNOSTIC_TAGS) <= set(names))
+        self.assertFalse(any("command" in name or name.startswith("click") for name in folded))
+
+    def test_exact_probe_hard_denies_click_and_command_channels(self):
+        class CommandAPI:
+            def __init__(self):
+                self.read_names = []
+
+            def runtime_project(self):
+                return r"C:\SCADA\Dakrosa2\Dakrosa2.mcp"
+
+            def enumerate_tags(self, project):
+                return [
+                    {"id": 1, "name": "H2-Frequ"},
+                    {"id": 2, "name": "ClickH2"},
+                    {"id": 3, "name": "H1command1"},
+                ]
+
+            def tag_type(self, project, tag):
+                return {"code": 8, "name": "Float", "size": 4}
+
+            def read_numeric(self, name, type_code):
+                self.read_names.append(name)
+                return {"value": 50.0, "state": 0, "quality": None}
+
+        api = CommandAPI()
+        result = build_probe(
+            api,
+            inventory_limit=0,
+            candidate_limit=0,
+            exact_names=("H2-Frequ", "ClickH2", "H1command1"),
+        )
+
+        self.assertEqual(result["exact"]["denied"], ["ClickH2", "H1command1"])
+        self.assertEqual(api.read_names, ["H2-Frequ"])
+
     def test_probe_degrades_to_diagnostic_payload_instead_of_raising(self):
         class BrokenAPI:
             def runtime_project(self):
