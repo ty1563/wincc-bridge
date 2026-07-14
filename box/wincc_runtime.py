@@ -460,6 +460,18 @@ def _station2_curated_specs():
             "required": False,
             "project_files": DAKROSA2_RUNTIME_PROJECT_FILES,
         })
+
+    # Connect is preserved as a neutral raw binary.  Two Phase 5 production
+    # shipments proved type/state/value transport, but not process semantics.
+    specs.append({
+        "name": "Connect",
+        "keys": ("scada_connect_raw",),
+        "min": 0.0,
+        "max": 1.0,
+        "allowed_values": (0.0, 1.0),
+        "required": False,
+        "project_files": DAKROSA2_RUNTIME_PROJECT_FILES,
+    })
     return tuple(specs)
 
 
@@ -537,11 +549,11 @@ START_SEQUENCE_DIAGNOSTIC_TAGS = (
     "H2-Frequ", "H3-Frequ",
 )
 
-# Exact native names recovered from the dam and trend operator screens.  Keep
-# these diagnostic-only until two fresh Runtime shipments establish their
-# type, state, value, and station-2 semantics.
+# Exact native event names recovered from the trend operator screen.  Keep
+# these diagnostic-only until fresh Runtime shipments establish a healthy
+# state and station-2 semantics.  Connect graduated to the curated canonical
+# specs in 1.5.21 and must not be read a second time through this list.
 OPERATOR_DIAGNOSTIC_TAGS = (
-    "Connect",
     "EVENT_TYPE_MH1",
     "EVENT_TYPE_MH2",
     "EVENT_TYPE_MH3",
@@ -1169,10 +1181,13 @@ def read_curated_snapshot(station_name, snapshot_utc,
                 if spec.get("absolute"):
                     value = abs(value)
                 state = sample.get("state", -1)
+                allowed_values = spec.get("allowed_values")
                 if (isinstance(state, bool) or state != 0 or
                         not math.isfinite(value) or
                         value < float(spec["min"]) or
-                        value > float(spec["max"])):
+                        value > float(spec["max"]) or
+                        (allowed_values is not None and
+                         value not in allowed_values)):
                     rejected += 1
                     continue
                 stat = _snapshot_stat(value, snapshot_utc)

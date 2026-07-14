@@ -404,9 +404,9 @@ class WinCCRuntimeProbeTests(unittest.TestCase):
             "LV-Utb": (0.0, 50.0, False),
         }
 
-        self.assertEqual(len(specs), 192)
+        self.assertEqual(len(specs), 193)
         self.assertEqual(
-            sum(len(spec["keys"]) for spec in specs.values()), 211)
+            sum(len(spec["keys"]) for spec in specs.values()), 212)
         for source_name, canonical_keys in expected_keys.items():
             self.assertIn(source_name, specs)
             self.assertEqual(specs[source_name]["keys"], canonical_keys)
@@ -516,8 +516,8 @@ class WinCCRuntimeProbeTests(unittest.TestCase):
         }
 
         self.assertEqual(len(expected), 52)
-        self.assertEqual(len(specs), 192)
-        self.assertEqual(sum(len(spec["keys"]) for spec in specs.values()), 211)
+        self.assertEqual(len(specs), 193)
+        self.assertEqual(sum(len(spec["keys"]) for spec in specs.values()), 212)
         self.assertLessEqual(len(specs), 256)
         for source_name, (keys, low, high) in expected.items():
             self.assertIn(source_name, specs)
@@ -536,6 +536,30 @@ class WinCCRuntimeProbeTests(unittest.TestCase):
             "H1Opvalve", "H2Opvalve", "H3Opvalve",
         ):
             self.assertNotIn(excluded, specs)
+
+    def test_station2_curated_specs_add_neutral_phase5_connect_raw(self):
+        specs = {
+            spec["name"]: spec
+            for spec in wincc_runtime.STATION2_CURATED_SPECS
+        }
+
+        self.assertEqual(specs["Connect"]["keys"], ("scada_connect_raw",))
+        self.assertEqual(specs["Connect"]["min"], 0.0)
+        self.assertEqual(specs["Connect"]["max"], 1.0)
+        self.assertEqual(specs["Connect"]["allowed_values"], (0.0, 1.0))
+        self.assertFalse(specs["Connect"]["required"])
+        self.assertEqual(
+            specs["Connect"]["project_files"],
+            wincc_runtime.DAKROSA2_RUNTIME_PROJECT_FILES,
+        )
+        self.assertNotIn(
+            "scada_connect_fault_raw",
+            {
+                key
+                for spec in wincc_runtime.STATION2_CURATED_SPECS
+                for key in spec["keys"]
+            },
+        )
 
     def test_phase4_curated_tags_require_the_reviewed_runtime_project(self):
         class ProjectAPI:
@@ -580,7 +604,68 @@ class WinCCRuntimeProbeTests(unittest.TestCase):
         )
         self.assertNotIn("H2-Frequ", other.names)
         self.assertNotIn("u2_start_frequency_raw", other_result["tags"])
-        self.assertEqual(other_result["project_gated_skipped"], 52)
+        self.assertEqual(other_result["project_gated_skipped"], 53)
+
+    def test_phase5_connect_maps_only_healthy_binary_runtime_values(self):
+        class ConnectAPI:
+            def __init__(self, value=1, state=0):
+                self.value = value
+                self.state = state
+
+            def connect(self):
+                pass
+
+            def disconnect(self):
+                pass
+
+            def runtime_project(self):
+                return r"C:\SCADA\WInCC_Backup_30_10_2020.mcp"
+
+            def read_numerics(self, names, type_code):
+                return {
+                    "Connect": {
+                        "value": self.value,
+                        "state": self.state,
+                        "quality": None,
+                    },
+                }
+
+        healthy = read_curated_snapshot(
+            "Dakrosa2",
+            "2026-07-14T15:00:00Z",
+            api_factory=lambda: ConnectAPI(),
+        )
+        self.assertEqual(healthy["tags"]["scada_connect_raw"]["last"], 1.0)
+        self.assertNotIn("scada_connect_fault_raw", healthy["tags"])
+
+        bad_state = read_curated_snapshot(
+            "Dakrosa2",
+            "2026-07-14T15:00:01Z",
+            api_factory=lambda: ConnectAPI(state=257),
+        )
+        self.assertNotIn("scada_connect_raw", bad_state["tags"])
+
+        bad_value = read_curated_snapshot(
+            "Dakrosa2",
+            "2026-07-14T15:00:02Z",
+            api_factory=lambda: ConnectAPI(value=2),
+        )
+        self.assertNotIn("scada_connect_raw", bad_value["tags"])
+
+        fractional_value = read_curated_snapshot(
+            "Dakrosa2",
+            "2026-07-14T15:00:02Z",
+            api_factory=lambda: ConnectAPI(value=0.5),
+        )
+        self.assertNotIn("scada_connect_raw", fractional_value["tags"])
+
+        station1 = read_curated_snapshot(
+            "Dakrosa1",
+            "2026-07-14T15:00:03Z",
+            api_factory=lambda: ConnectAPI(),
+        )
+        self.assertEqual(station1["attempted"], 0)
+        self.assertNotIn("scada_connect_raw", station1["tags"])
 
     def test_phase4_snapshot_maps_valid_samples_without_semantic_aliases(self):
         class Phase4API:
@@ -1035,7 +1120,6 @@ class WinCCRuntimeProbeTests(unittest.TestCase):
         self.assertEqual(
             wincc_runtime.OPERATOR_DIAGNOSTIC_TAGS,
             (
-                "Connect",
                 "EVENT_TYPE_MH1",
                 "EVENT_TYPE_MH2",
                 "EVENT_TYPE_MH3",
@@ -1095,8 +1179,8 @@ class WinCCRuntimeProbeTests(unittest.TestCase):
             candidate_limit=0,
         )
 
-        self.assertEqual(result["exact"]["requested"], 87)
-        self.assertEqual(result["exact"]["found"], 4)
+        self.assertEqual(result["exact"]["requested"], 86)
+        self.assertEqual(result["exact"]["found"], 3)
         self.assertEqual(result["exact"]["missing"], [
             name for name in wincc_runtime.SCADA_DIAGNOSTIC_TAGS
             if name not in wincc_runtime.OPERATOR_DIAGNOSTIC_TAGS
@@ -1107,7 +1191,6 @@ class WinCCRuntimeProbeTests(unittest.TestCase):
                 for item in result["exact"]["tags"]
             ],
             [
-                ("Connect", 1, 0, 0),
                 ("EVENT_TYPE_MH1", 8, 11.0, 0),
                 ("EVENT_TYPE_MH2", 8, 22.0, 0),
                 ("EVENT_TYPE_MH3", 8, 33.0, 0),
@@ -1119,7 +1202,7 @@ class WinCCRuntimeProbeTests(unittest.TestCase):
         names = wincc_runtime.SCADA_DIAGNOSTIC_TAGS
         folded = [name.lower() for name in names]
 
-        self.assertEqual(len(names), 87)
+        self.assertEqual(len(names), 86)
         self.assertEqual(len(folded), len(set(folded)))
         self.assertTrue(set(wincc_runtime.MHY2_DIAGNOSTIC_TAGS) <= set(names))
         self.assertTrue(set(wincc_runtime.START_SEQUENCE_DIAGNOSTIC_TAGS) <= set(names))
