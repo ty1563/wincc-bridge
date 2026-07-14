@@ -404,9 +404,9 @@ class WinCCRuntimeProbeTests(unittest.TestCase):
             "LV-Utb": (0.0, 50.0, False),
         }
 
-        self.assertEqual(len(specs), 140)
+        self.assertEqual(len(specs), 192)
         self.assertEqual(
-            sum(len(spec["keys"]) for spec in specs.values()), 159)
+            sum(len(spec["keys"]) for spec in specs.values()), 211)
         for source_name, canonical_keys in expected_keys.items():
             self.assertIn(source_name, specs)
             self.assertEqual(specs[source_name]["keys"], canonical_keys)
@@ -454,6 +454,200 @@ class WinCCRuntimeProbeTests(unittest.TestCase):
             self.assertEqual(specs[source_name]["min"], low)
             self.assertEqual(specs[source_name]["max"], high)
             self.assertFalse(specs[source_name]["required"])
+
+    def test_station2_curated_specs_include_only_phase4_runtime_proven_tags(self):
+        specs = {
+            spec["name"]: spec
+            for spec in wincc_runtime.STATION2_CURATED_SPECS
+        }
+        expected = {
+            "ACfrequency": (("mhy2_ac_frequency_raw",), 0.0, 100.0),
+            "outfrequency": (("mhy2_output_frequency_raw",), 0.0, 100.0),
+            "Outvoltage": (("mhy2_output_voltage_raw",), 0.0, 1000.0),
+            "DCinput": (("mhy2_dc_input_raw",), 0.0, 1000.0),
+            "ACviltagein": (("mhy2_ac_input_voltage_raw",), 0.0, 1000.0),
+            "powerout": (("mhy2_output_power_raw",), 0.0, 100.0),
+            "Outcurent": (("mhy2_output_current_raw",), 0.0, 1000.0),
+            "tempin": (("mhy2_input_temperature_raw",), -50.0, 200.0),
+            "tempout": (("mhy2_output_temperature_raw",), -50.0, 200.0),
+            "DCfault": (("mhy2_dc_fault_raw",), 0.0, 1.0),
+            "H1Spare19": (("mhy2_h1_spare19_raw",), 0.0, 1.0),
+            "Warning": (("mhy2_warning_raw",), 0.0, 65535.0),
+            "H1comgroup2": (("u1_start_secondary_group_raw",), 0.0, 65535.0),
+            "H2comgroup2": (("u2_start_secondary_group_raw",), 0.0, 65535.0),
+            "H3comgroup1": (("u3_start_secondary_group_raw",), 0.0, 65535.0),
+            "H1Brakeoff": (("u1_brake_off_raw",), 0.0, 1.0),
+            "H2Brakeoff": (("u2_brake_off_raw",), 0.0, 1.0),
+            "H3Brakeoff": (("u3_brake_off_raw",), 0.0, 1.0),
+            "H1local": (("u1_local_raw",), 0.0, 1.0),
+            "H2local": (("u2_local_raw",), 0.0, 1.0),
+            "H3local": (("u3_local_raw",), 0.0, 1.0),
+            "H1remote": (("u1_remote_raw",), 0.0, 1.0),
+            "H2remote": (("u2_remote_raw",), 0.0, 1.0),
+            "H3remote": (("u3_remote_raw",), 0.0, 1.0),
+            "H1Spare7": (("u1_spare7_raw",), 0.0, 1.0),
+            "H2Spare7": (("u2_spare7_raw",), 0.0, 1.0),
+            "H3Spare7": (("u3_spare7_raw",), 0.0, 1.0),
+            "H1DeExcitff": (("u1_de_excitff_raw",), 0.0, 1.0),
+            "H2DeExcitff": (("u2_de_excitff_raw",), 0.0, 1.0),
+            "H3DeExcitff": (("u3_de_excitff_raw",), 0.0, 1.0),
+            "H2Brakeopen": (("u2_brake_open_raw",), 0.0, 1.0),
+            "H3Brakeopen": (("u3_brake_open_raw",), 0.0, 1.0),
+            "H1Startsyn": (("u1_start_syn_raw",), 0.0, 1.0),
+            "H2Startsyn": (("u2_start_syn_raw",), 0.0, 1.0),
+            "H3Startsyn": (("u3_start_syn_raw",), 0.0, 1.0),
+            "H1Spristore": (("u1_spri_store_raw",), 0.0, 1.0),
+            "H2Spristore": (("u2_spri_store_raw",), 0.0, 1.0),
+            "H3Spristore": (("u3_spri_store_raw",), 0.0, 1.0),
+            "H1Springcharg": (("u1_spring_charg_raw",), 0.0, 1.0),
+            "H2Springcharg": (("u2_spring_charg_raw",), 0.0, 1.0),
+            "H3Springcharg": (("u3_spring_charg_raw",), 0.0, 1.0),
+            "H1MVopen": (("u1_mv_open_raw",), 0.0, 1.0),
+            "H2MVopen": (("u2_mv_open_raw",), 0.0, 1.0),
+            "H3MVopen": (("u3_mv_open_raw",), 0.0, 1.0),
+            "H1MVclose": (("u1_mv_close_raw",), 0.0, 1.0),
+            "H2MVclose": (("u2_mv_close_raw",), 0.0, 1.0),
+            "H3MVclose": (("u3_mv_close_raw",), 0.0, 1.0),
+            "realopening1": (("u1_real_opening_raw",), 0.0, 120.0),
+            "realopening2": (("u2_real_opening_raw",), 0.0, 120.0),
+            "realopening3": (("u3_real_opening_raw",), 0.0, 120.0),
+            "H2-Frequ": (("u2_start_frequency_raw",), 0.0, 100.0),
+            "H3-Frequ": (("u3_start_frequency_raw",), 0.0, 100.0),
+        }
+
+        self.assertEqual(len(expected), 52)
+        self.assertEqual(len(specs), 192)
+        self.assertEqual(sum(len(spec["keys"]) for spec in specs.values()), 211)
+        self.assertLessEqual(len(specs), 256)
+        for source_name, (keys, low, high) in expected.items():
+            self.assertIn(source_name, specs)
+            self.assertEqual(specs[source_name]["keys"], keys)
+            self.assertEqual(specs[source_name]["min"], low)
+            self.assertEqual(specs[source_name]["max"], high)
+            self.assertFalse(specs[source_name]["required"])
+            self.assertEqual(
+                specs[source_name]["project_files"],
+                wincc_runtime.DAKROSA2_RUNTIME_PROJECT_FILES,
+            )
+
+        for excluded in (
+            "DCTC-",
+            "H1OpMvalve", "H2OpMvalve", "H3OpMvalve",
+            "H1Opvalve", "H2Opvalve", "H3Opvalve",
+        ):
+            self.assertNotIn(excluded, specs)
+
+    def test_phase4_curated_tags_require_the_reviewed_runtime_project(self):
+        class ProjectAPI:
+            def __init__(self, project):
+                self.project = project
+                self.names = []
+
+            def connect(self):
+                pass
+
+            def disconnect(self):
+                pass
+
+            def runtime_project(self):
+                return self.project
+
+            def read_numerics(self, names, type_code):
+                self.names = list(names)
+                return {
+                    name: {"value": 50.0, "state": 0, "quality": None}
+                    for name in names
+                }
+
+        reviewed = ProjectAPI(
+            r"C:\SCADA\WInCC_Backup_30_10_2020.mcp")
+        reviewed_result = read_curated_snapshot(
+            "Dakrosa2", "2026-07-14T12:00:00Z",
+            api_factory=lambda: reviewed,
+        )
+        self.assertIn("H2-Frequ", reviewed.names)
+        self.assertEqual(
+            reviewed_result["tags"]["u2_start_frequency_raw"]["last"],
+            50.0,
+        )
+        self.assertIn("u2_F", reviewed_result["tags"])
+        self.assertNotIn("u2_GV", reviewed_result["tags"])
+
+        other = ProjectAPI(r"C:\SCADA\Dakrosa2\Unknown.mcp")
+        other_result = read_curated_snapshot(
+            "Dakrosa2", "2026-07-14T12:00:00Z",
+            api_factory=lambda: other,
+        )
+        self.assertNotIn("H2-Frequ", other.names)
+        self.assertNotIn("u2_start_frequency_raw", other_result["tags"])
+        self.assertEqual(other_result["project_gated_skipped"], 52)
+
+    def test_phase4_snapshot_maps_valid_samples_without_semantic_aliases(self):
+        class Phase4API:
+            def connect(self):
+                pass
+
+            def disconnect(self):
+                pass
+
+            def runtime_project(self):
+                return r"C:\SCADA\WInCC_Backup_30_10_2020.mcp"
+
+            def read_numerics(self, names, type_code):
+                self.names = list(names)
+                return {
+                    "ACfrequency": {
+                        "value": 49.8, "state": 0, "quality": None},
+                    "DCfault": {
+                        "value": 1, "state": 0, "quality": None},
+                    "Warning": {
+                        "value": 322, "state": 0, "quality": None},
+                    "powerout": {
+                        "value": 100, "state": 0, "quality": None},
+                    "realopening2": {
+                        "value": 45.5, "state": 0, "quality": None},
+                    "H2-Frequ": {
+                        "value": 50.1, "state": 0, "quality": None},
+                    "Outcurent": {
+                        "value": 1200, "state": 0, "quality": None},
+                    "H2Brakeoff": {
+                        "value": 1, "state": 257, "quality": None},
+                    "H3-Frequ": {
+                        "value": float("nan"), "state": 0,
+                        "quality": None},
+                }
+
+        result = read_curated_snapshot(
+            "Dakrosa2", "2026-07-14T12:10:00Z", api_factory=Phase4API)
+
+        self.assertEqual(result["accepted"], 6)
+        self.assertEqual(result["project_gated_skipped"], 0)
+        self.assertEqual(
+            result["tags"]["mhy2_ac_frequency_raw"]["last"], 49.8)
+        self.assertEqual(result["tags"]["mhy2_dc_fault_raw"]["last"], 1.0)
+        self.assertEqual(result["tags"]["mhy2_warning_raw"]["last"], 322.0)
+        self.assertEqual(
+            result["tags"]["mhy2_output_power_raw"]["last"], 100.0)
+        self.assertEqual(result["tags"]["u2_real_opening_raw"]["last"], 45.5)
+        self.assertEqual(
+            result["tags"]["u2_start_frequency_raw"]["last"], 50.1)
+        self.assertNotIn("mhy2_output_current_raw", result["tags"])
+        self.assertNotIn("u2_brake_off_raw", result["tags"])
+        self.assertNotIn("u3_start_frequency_raw", result["tags"])
+        self.assertNotIn("u2_F", result["tags"])
+        self.assertNotIn("u2_GV", result["tags"])
+
+        class OverloadAPI(Phase4API):
+            def read_numerics(self, names, type_code):
+                return {
+                    "powerout": {
+                        "value": 100.1, "state": 0, "quality": None},
+                }
+
+        overloaded = read_curated_snapshot(
+            "Dakrosa2", "2026-07-14T12:11:00Z",
+            api_factory=OverloadAPI)
+        self.assertNotIn("mhy2_output_power_raw", overloaded["tags"])
 
     def test_curated_station2_snapshot_maps_only_valid_realtime_values(self):
         class SelectedAPI:

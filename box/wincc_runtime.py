@@ -223,6 +223,13 @@ _EVENT_TOKEN = re.compile(
     re.IGNORECASE,
 )
 
+# The Phase 4 tag promotion is evidence-bound to this exact Dakrosa2 Runtime
+# project.  Keep the filename normalized because WinCC returns a full path with
+# installation-specific casing.
+DAKROSA2_RUNTIME_PROJECT_FILES = frozenset((
+    "wincc_backup_30_10_2020.mcp",
+))
+
 
 def _station2_curated_specs():
     """Small, validated Runtime set used by the adaptive snapshot.
@@ -386,6 +393,73 @@ def _station2_curated_specs():
             "max": high,
             "required": False,
         })
+
+    # Runtime sources proven healthy in two consecutive Phase 4 shipments.
+    # Every field is optional and source-preserving.  Do not alias H2/H3-Frequ
+    # to H2/H3-Hz, or realopeningN to the established guide-vane contract.
+    phase4_runtime_metrics = (
+        ("ACfrequency", "mhy2_ac_frequency_raw", 0.0, 100.0),
+        ("outfrequency", "mhy2_output_frequency_raw", 0.0, 100.0),
+        ("Outvoltage", "mhy2_output_voltage_raw", 0.0, 1000.0),
+        ("DCinput", "mhy2_dc_input_raw", 0.0, 1000.0),
+        ("ACviltagein", "mhy2_ac_input_voltage_raw", 0.0, 1000.0),
+        ("powerout", "mhy2_output_power_raw", 0.0, 100.0),
+        ("Outcurent", "mhy2_output_current_raw", 0.0, 1000.0),
+        ("tempin", "mhy2_input_temperature_raw", -50.0, 200.0),
+        ("tempout", "mhy2_output_temperature_raw", -50.0, 200.0),
+        ("DCfault", "mhy2_dc_fault_raw", 0.0, 1.0),
+        ("H1Spare19", "mhy2_h1_spare19_raw", 0.0, 1.0),
+        ("Warning", "mhy2_warning_raw", 0.0, 65535.0),
+        ("H1comgroup2", "u1_start_secondary_group_raw", 0.0, 65535.0),
+        ("H2comgroup2", "u2_start_secondary_group_raw", 0.0, 65535.0),
+        ("H3comgroup1", "u3_start_secondary_group_raw", 0.0, 65535.0),
+        ("H1Brakeoff", "u1_brake_off_raw", 0.0, 1.0),
+        ("H2Brakeoff", "u2_brake_off_raw", 0.0, 1.0),
+        ("H3Brakeoff", "u3_brake_off_raw", 0.0, 1.0),
+        ("H1local", "u1_local_raw", 0.0, 1.0),
+        ("H2local", "u2_local_raw", 0.0, 1.0),
+        ("H3local", "u3_local_raw", 0.0, 1.0),
+        ("H1remote", "u1_remote_raw", 0.0, 1.0),
+        ("H2remote", "u2_remote_raw", 0.0, 1.0),
+        ("H3remote", "u3_remote_raw", 0.0, 1.0),
+        ("H1Spare7", "u1_spare7_raw", 0.0, 1.0),
+        ("H2Spare7", "u2_spare7_raw", 0.0, 1.0),
+        ("H3Spare7", "u3_spare7_raw", 0.0, 1.0),
+        ("H1DeExcitff", "u1_de_excitff_raw", 0.0, 1.0),
+        ("H2DeExcitff", "u2_de_excitff_raw", 0.0, 1.0),
+        ("H3DeExcitff", "u3_de_excitff_raw", 0.0, 1.0),
+        ("H2Brakeopen", "u2_brake_open_raw", 0.0, 1.0),
+        ("H3Brakeopen", "u3_brake_open_raw", 0.0, 1.0),
+        ("H1Startsyn", "u1_start_syn_raw", 0.0, 1.0),
+        ("H2Startsyn", "u2_start_syn_raw", 0.0, 1.0),
+        ("H3Startsyn", "u3_start_syn_raw", 0.0, 1.0),
+        ("H1Spristore", "u1_spri_store_raw", 0.0, 1.0),
+        ("H2Spristore", "u2_spri_store_raw", 0.0, 1.0),
+        ("H3Spristore", "u3_spri_store_raw", 0.0, 1.0),
+        ("H1Springcharg", "u1_spring_charg_raw", 0.0, 1.0),
+        ("H2Springcharg", "u2_spring_charg_raw", 0.0, 1.0),
+        ("H3Springcharg", "u3_spring_charg_raw", 0.0, 1.0),
+        ("H1MVopen", "u1_mv_open_raw", 0.0, 1.0),
+        ("H2MVopen", "u2_mv_open_raw", 0.0, 1.0),
+        ("H3MVopen", "u3_mv_open_raw", 0.0, 1.0),
+        ("H1MVclose", "u1_mv_close_raw", 0.0, 1.0),
+        ("H2MVclose", "u2_mv_close_raw", 0.0, 1.0),
+        ("H3MVclose", "u3_mv_close_raw", 0.0, 1.0),
+        ("realopening1", "u1_real_opening_raw", 0.0, 120.0),
+        ("realopening2", "u2_real_opening_raw", 0.0, 120.0),
+        ("realopening3", "u3_real_opening_raw", 0.0, 120.0),
+        ("H2-Frequ", "u2_start_frequency_raw", 0.0, 100.0),
+        ("H3-Frequ", "u3_start_frequency_raw", 0.0, 100.0),
+    )
+    for source_name, key, low, high in phase4_runtime_metrics:
+        specs.append({
+            "name": source_name,
+            "keys": (key,),
+            "min": low,
+            "max": high,
+            "required": False,
+            "project_files": DAKROSA2_RUNTIME_PROJECT_FILES,
+        })
     return tuple(specs)
 
 
@@ -466,14 +540,6 @@ SCADA_DIAGNOSTIC_TAGS = (
     MHY2_DIAGNOSTIC_TAGS +
     START_SEQUENCE_DIAGNOSTIC_TAGS
 )
-
-# Observed from the fresh Dakrosa2 production raw probe before release 1.5.18.
-# Keep this strict: a renamed/changed Runtime project must fail closed until it
-# is reviewed as a new station identity.
-DAKROSA2_RUNTIME_PROJECT_FILES = frozenset((
-    "wincc_backup_30_10_2020.mcp",
-))
-
 
 class WinCCRuntimeAPI:
     """Thin adapter over WinCC's external 32-bit DMCLIENT API."""
@@ -994,6 +1060,31 @@ def _snapshot_stat(value, snapshot_utc):
     }
 
 
+def _project_eligible_specs(api, specs):
+    """Fail closed for specs whose production evidence is project-bound."""
+    gated = tuple(spec for spec in specs if spec.get("project_files"))
+    if not gated:
+        return tuple(specs), 0
+
+    project_file = ""
+    if hasattr(api, "runtime_project"):
+        try:
+            project_file = ntpath.basename(
+                str(api.runtime_project() or "")).strip().lower()
+        except Exception:
+            project_file = ""
+
+    eligible = []
+    skipped = 0
+    for spec in specs:
+        allowed = spec.get("project_files")
+        if allowed and project_file not in allowed:
+            skipped += 1
+            continue
+        eligible.append(spec)
+    return tuple(eligible), skipped
+
+
 def read_curated_snapshot(station_name, snapshot_utc,
                           api_factory=WinCCRuntimeAPI, specs=None):
     """Read an exact, bounded tag allow-list without enumerating the project.
@@ -1039,10 +1130,14 @@ def read_curated_snapshot(station_name, snapshot_utc,
     accepted = 0
     rejected = 0
     required_accepted = 0
+    project_gated_skipped = 0
     try:
         if hasattr(api, "connect"):
             api.connect()
             connected = True
+        specs, project_gated_skipped = _project_eligible_specs(api, specs)
+        required_attempted = sum(
+            1 for spec in specs if spec.get("required", True))
         batch_samples = None
         if hasattr(api, "read_numerics"):
             try:
@@ -1084,6 +1179,7 @@ def read_curated_snapshot(station_name, snapshot_utc,
             "rejected": rejected,
             "required_attempted": required_attempted,
             "required_accepted": required_accepted,
+            "project_gated_skipped": project_gated_skipped,
             "tags": tags,
         }
         if not accepted:
@@ -1100,6 +1196,7 @@ def read_curated_snapshot(station_name, snapshot_utc,
             "rejected": len(specs) - accepted,
             "required_attempted": required_attempted,
             "required_accepted": required_accepted,
+            "project_gated_skipped": project_gated_skipped,
             "tags": {},
         }
     finally:
