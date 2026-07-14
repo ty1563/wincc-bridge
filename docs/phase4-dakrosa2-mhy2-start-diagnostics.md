@@ -11,6 +11,10 @@ does not change the normal Runtime snapshot, and does not write to WinCC.
 - `probe_runtime()` enables the default exact list only when the observed
   station name is exactly `Dakrosa2` (case-insensitive).
 - Dakrosa1 continues to request zero default exact diagnostic tags.
+- The same fleet release also activates the already-merged Phase 3 Dakrosa1
+  OLEDB ValueName canary. That is a separate, archive-polling diagnostic for
+  D1 frequency and guide-vane gaps; it never uses this Dakrosa2 allowlist and
+  never merges results into canonical tags.
 - The existing updater, OTA interval, NSSM service, installer, reader mode,
   callback canary, and WinCC binaries are unchanged.
 - `Click*` and every name containing `command` are hard-denied at the exact
@@ -119,6 +123,8 @@ source, without fresh same-snapshot equality evidence.
 Observed at `2026-07-14T09:50Z` before the candidate release:
 
 - Dakrosa1 `1.5.17`: online, no snapshot error.
+- Dakrosa1 baseline: 21 source tags, 29 after server-side derivation, raw
+  21/21 ValueIDs, `runtime_probe.available=false`, no `oledb_value_probe`.
 - Dakrosa2 `1.5.17`: online with 155 canonical tags, Runtime snapshot healthy,
   callback errors 0, oversized callbacks 0.
 - Existing Dakrosa2 raw diagnostic: 24 requested, 24 found, no missing names.
@@ -152,8 +158,8 @@ labels belong in a separately reviewed bridge/portal release.
 Changing `version.txt` is a fleet-wide trigger. After pushing `1.5.18`:
 
 1. Confirm Dakrosa1 advances to `1.5.18`, keeps receiving snapshots, retains
-   its prior tag count, and has no error. It must not gain Runtime diagnostic
-   reads.
+   its prior tag count, and has no error. It must not gain DMCLIENT Runtime
+   reads; the separate `oledb_value_probe` may appear in its full raw payload.
 2. Confirm Dakrosa2 advances to `1.5.18`, keeps 155 canonical tags and healthy
    callback counters, then wait for the fresh raw diagnostic shipment.
 3. Confirm `runtime_probe.exact.requested == 83`, with no denied command tags.

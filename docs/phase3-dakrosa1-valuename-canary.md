@@ -1,8 +1,8 @@
 # Phase 3: Dakrosa1 OLEDB ValueName canary
 
-Candidate bridge release: `1.5.18` (**deployment HOLD**).
+Candidate bridge release: `1.5.18` (**operator-authorized canary**).
 
-## Release evidence and deployment hold
+## Release evidence and controlled rollout
 
 The checked local Dakrosa1 reference config uses the legacy shape and has no
 `[station].name`. Fresh production raw output contains `runtime_probe`, a field
@@ -16,13 +16,20 @@ does not prove the remote reader has the same blob. The existing updater may
 upload either `c945766...` or the current main reader according to deployed
 config, so a bump could still replace the reader currently running on D1.
 
-Keep `version.txt = 1.5.17` until a read-only remote reader hash, or equivalent
-config plus successful sync-log evidence, identifies the exact deployed and
-next-selected reader. A bounded read-only SSH check from the development machine
-timed out without connecting, so it provided no such evidence and made no remote
-change. Do not infer station identity from remote mode, IP, reader defaults,
-paths, or aliases, and do not modify production config merely to release this
-canary.
+The original deployment hold required a read-only remote reader hash or
+equivalent config plus successful sync-log evidence. A bounded read-only SSH
+check timed out without connecting, so that evidence is still unavailable.
+On `2026-07-14` the operator explicitly authorized the fleet version bump to
+observe the newest diagnostics. That authorization lifts the deployment hold
+for this canary only; it does not turn the unknown remote reader identity into
+proof. Do not infer station identity from remote mode, IP, reader defaults,
+paths, or aliases, and do not modify production config to make the canary pass.
+
+The pre-release Dakrosa1 baseline at `2026-07-14T10:03Z` is 21 source tags,
+29 tags after server-side derivation, no snapshot error, raw 21/21 ValueIDs,
+`runtime_probe.available=false`, and no `oledb_value_probe`. Any loss of the
+existing snapshot or raw payload is a release regression; an additive
+diagnostic failure is not allowed to remove either payload.
 
 ## Purpose
 
@@ -148,7 +155,7 @@ or WinCC binaries to make this canary appear.
 
 - Focused helper, raw collector, and station-sync suite: 32 tests.
 - Python 3.7 grammar and byte compilation cover the helper and integration.
-- Full non-environment unit suite: 100 tests. Diff safety audit, review, and
+- Full non-environment unit suite: 104 tests. Diff safety audit, review, and
   production monitoring are required before promotion.
 - `test_e2e.py` remains environment-dependent because the isolated worktree has
   no production `config.local.toml`.
