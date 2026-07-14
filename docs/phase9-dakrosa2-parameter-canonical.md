@@ -78,3 +78,35 @@ After both stations report `1.5.24` through the public API:
 If either station regresses, publish a separately reviewed higher version.
 Never downgrade `version.txt` or modify the installed OTA/service mechanism in
 place.
+
+## Production result for 1.5.24
+
+The GitHub raw release endpoint exposed `1.5.24` at
+`2026-07-14T16:19:36Z`.  Both stations then advanced through their existing
+OTA path without direct host access:
+
+- Dakrosa1 first reported `1.5.24` at `16:20:24.041Z`, retained 29 published
+  tags, and exposed none of the 16 Dakrosa2 Phase 9 keys.
+- Dakrosa2 first reported `1.5.24` at `16:22:33.620Z`, remained in Runtime
+  mode, published 224 tags, attempted 209 curated specs, accepted 206, rejected
+  the same three optional samples, and retained zero callback errors.
+
+All 16 promoted samples were present in the next public Dakrosa2 snapshot,
+were realtime, and had Runtime state zero.  `u1_temp11` was approximately
+46.6 degrees Celsius.  Each phase A/C value was finite, all three phase C
+reactive values retained their negative sign, and the three raw reactive-
+energy counters remained near 2260.07, 2262.42, and 2226.80 without scaling.
+
+The raw shipment received at `16:22:39.092Z` (dump `16:21:48Z`) returned to 90
+exact requests, found 89, denied none, and continued to miss only `DCTC-`.
+None of the 16 promoted sources remained in the exact payload, confirming that
+the release did not duplicate their Runtime reads.
+
+The deployed public mobile API exposed all 100 readouts and 91 of the 92
+allowlisted raw values; the only absent raw value was the unrelated optional
+`scada_aux_lcu41_iw0_raw`.  All 16 Phase 9 fields were present.  Production
+browser verification showed 32/32 live positions on H1, H2, and H3 parameter
+screens and 20/20 on the H1 turbine screen.  `H1_temp11` rendered as 46.50
+degrees Celsius, `KWA1/KWA3` rendered in kVAr with negative QC preserved, and
+`KVArh` rendered as an unscaled value with no unit.  The browser console had
+no warning or error.
