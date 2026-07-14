@@ -1,8 +1,8 @@
 # Phase 3: Dakrosa1 OLEDB ValueName canary
 
-Candidate bridge release: `1.5.18` (guarded OTA canary).
+Candidate bridge release: `1.5.18` (**deployment HOLD**).
 
-## Release evidence and unchanged OTA boundary
+## Release evidence and deployment hold
 
 The checked local Dakrosa1 reference config uses the legacy shape and has no
 `[station].name`. Fresh production raw output contains `runtime_probe`, a field
@@ -11,10 +11,18 @@ path is active on D1. This is behavioral evidence, not a remote file hash.
 
 The release keeps `box/oledb_reader.py` identical to the `1.5.17` main blob and
 has no semantic change in updater, service, installer, OTA schedule, or reader
-selection. A guarded version bump therefore introduces no new reader logic;
-it uses the existing OTA path and must be followed by D1/D2 monitoring. Do not
-infer station identity from remote mode, IP, reader defaults, paths, or aliases,
-and do not modify production config merely to release this canary.
+selection. This proves the release artifact introduces no new reader logic, but
+does not prove the remote reader has the same blob. The existing updater may
+upload either `c945766...` or the current main reader according to deployed
+config, so a bump could still replace the reader currently running on D1.
+
+Keep `version.txt = 1.5.17` until a read-only remote reader hash, or equivalent
+config plus successful sync-log evidence, identifies the exact deployed and
+next-selected reader. A bounded read-only SSH check from the development machine
+timed out without connecting, so it provided no such evidence and made no remote
+change. Do not infer station identity from remote mode, IP, reader defaults,
+paths, or aliases, and do not modify production config merely to release this
+canary.
 
 ## Purpose
 
