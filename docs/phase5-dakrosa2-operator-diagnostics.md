@@ -62,3 +62,30 @@ After both stations report `1.5.20`:
 If either station regresses, revert the diagnostic change, publish a higher
 version, and verify both stations again. Never downgrade `version.txt` or
 modify the OTA/service installation in place.
+
+## Production result for 1.5.20
+
+Both stations advanced through their existing OTA service without direct host
+access. Dakrosa2 reported `1.5.20` by `2026-07-14T14:44:09.702Z`; Dakrosa1
+reported it by `2026-07-14T14:45:38.813Z`.
+
+At `14:51Z`, Dakrosa1 remained healthy with 29 published tags and no snapshot
+error. Its post-OTA raw shipment at `14:49:44.903Z` retained the known
+unavailable DMCLIENT Runtime probe and a complete OLEDB ValueName canary; it
+did not execute the Dakrosa2 exact list. Dakrosa2 remained in `runtime` mode
+with 207 published tags, no snapshot error, zero callback errors, and a latest
+callback age of 0.25 seconds.
+
+Two post-OTA Dakrosa2 raw shipments were reviewed:
+
+| Received | Dump time | Exact result | `Connect` | `EVENT_TYPE_MH1/2/3` |
+| --- | --- | --- | --- | --- |
+| `14:45:38.415Z` | `14:44:48Z` | 87 requested, 86 found | Binary, value 0, state 0 | UInt16, value 0, state 257 |
+| `14:50:42.949Z` | `14:49:50Z` | 87 requested, 86 found | Binary, value 0, state 0 | UInt16, value 0, state 257 |
+
+Both used project `WInCC_Backup_30_10_2020.mcp`, denied no channels, and
+missed only the already-known `DCTC-`. `Connect` passes the two-cycle Runtime
+type/state/value transport gate, but its process meaning is still unresolved,
+so it remains diagnostic-only. All three event tags fail the Runtime state
+gate with state 257 in both shipments and also remain diagnostic-only. No
+canonical or portal mapping is authorized by this result.
