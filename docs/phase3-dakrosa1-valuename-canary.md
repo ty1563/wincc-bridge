@@ -1,23 +1,20 @@
 # Phase 3: Dakrosa1 OLEDB ValueName canary
 
-Candidate bridge release: `1.5.18` (**HOLD; do not bump yet**).
+Candidate bridge release: `1.5.18` (guarded OTA canary).
 
-## Release hold: prove the deployed updater identity first
+## Release evidence and unchanged OTA boundary
 
 The checked local Dakrosa1 reference config uses the legacy shape and has no
-`[station].name`. This is not proof of the remote production config, but it is
-a release blocker: `bridge.updater` preserves the pinned Dakrosa1 reader only
-when the deployed config contains exact `station.name = Dakrosa1`. With a
-missing name, the existing updater would copy the current fleet reader during
-any versioned OTA instead of the pinned reader.
+`[station].name`. Fresh production raw output contains `runtime_probe`, a field
+that does not exist in the pinned `c945766...` reader, so the current reader
+path is active on D1. This is behavioral evidence, not a remote file hash.
 
-It is safe to merge this code while `version.txt` remains `1.5.17`, because the
-updater returns before pulling when the remote version is unchanged. Do not
-bump to `1.5.18` until read-only runtime config or service-log evidence proves
-the deployed D1 bridge has exact station identity and therefore takes the
-existing pinned-reader branch. Do not infer identity from remote mode, IP,
-reader defaults, paths, or station aliases, and do not modify the updater or
-production config merely to release this canary.
+The release keeps `box/oledb_reader.py` identical to the `1.5.17` main blob and
+has no semantic change in updater, service, installer, OTA schedule, or reader
+selection. A guarded version bump therefore introduces no new reader logic;
+it uses the existing OTA path and must be followed by D1/D2 monitoring. Do not
+infer station identity from remote mode, IP, reader defaults, paths, or aliases,
+and do not modify production config merely to release this canary.
 
 ## Purpose
 
@@ -49,8 +46,8 @@ The two station namespaces must not be mixed.
 
 ## Execution boundary
 
-Dakrosa1 keeps the pinned `c945766...` legacy `oledb_reader.py`. The canary is
-instead implemented in the standalone `box/d1_oledb_canary.py` helper:
+The canary does not modify or import either reader variant. It is implemented
+in the standalone `box/d1_oledb_canary.py` helper:
 
 1. `bridge.collect.collect_rawdump()` first runs and successfully parses the
    existing reader output.
@@ -68,9 +65,10 @@ instead implemented in the standalone `box/d1_oledb_canary.py` helper:
 5. If a future reader already returns `oledb_value_probe`, the collector does
    not overwrite it or launch a duplicate helper.
 
-The existing updater already copies every current `box/*.py` and substitutes
-only `oledb_reader.py` for Dakrosa1. Therefore the helper reaches the remote
-box without changing updater, pin, service, NSSM, installer, or WinCC binaries.
+The existing updater already copies every current `box/*.py` and conditionally
+substitutes only `oledb_reader.py` when its exact Dakrosa1 config gate is true.
+The helper therefore reaches the remote box on either existing branch without
+changing updater, reader selection, service, NSSM, installer, or WinCC binaries.
 
 The optional kill switch is:
 
@@ -113,7 +111,7 @@ shows all of the following:
 2. A plausible timestamp/age and engineering unit.
 3. At least two independent raw-dump cycles with fresh timestamps or a value
    change consistent with plant state.
-4. No regression in the pinned reader rawdump, Dakrosa1 snapshot, Dakrosa2
+4. No regression in the existing reader rawdump, Dakrosa1 snapshot, Dakrosa2
    runtime snapshot, or callback canary.
 5. A separate reviewed release promotes only proven candidates. No stale,
    bad-quality, unknown-quality, or out-of-range fallback is allowed.
@@ -135,7 +133,7 @@ be monitored after `1.5.18` appears:
 - `oledb_value_probe` appears only in Dakrosa1 full raw output. Raw shipping is
   normally every 300 seconds, so its first appearance may lag OTA by one cycle.
 
-Do not change the pinned reader, updater, OTA schedule, service, NSSM, installer,
+Do not change reader selection, updater, OTA schedule, service, NSSM, installer,
 or WinCC binaries to make this canary appear.
 
 ## Verification
