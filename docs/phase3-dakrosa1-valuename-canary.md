@@ -1,6 +1,23 @@
 # Phase 3: Dakrosa1 OLEDB ValueName canary
 
-Candidate bridge release: `1.5.18`.
+Candidate bridge release: `1.5.18` (**HOLD; do not bump yet**).
+
+## Release hold: prove the deployed updater identity first
+
+The checked local Dakrosa1 reference config uses the legacy shape and has no
+`[station].name`. This is not proof of the remote production config, but it is
+a release blocker: `bridge.updater` preserves the pinned Dakrosa1 reader only
+when the deployed config contains exact `station.name = Dakrosa1`. With a
+missing name, the existing updater would copy the current fleet reader during
+any versioned OTA instead of the pinned reader.
+
+It is safe to merge this code while `version.txt` remains `1.5.17`, because the
+updater returns before pulling when the remote version is unchanged. Do not
+bump to `1.5.18` until read-only runtime config or service-log evidence proves
+the deployed D1 bridge has exact station identity and therefore takes the
+existing pinned-reader branch. Do not infer identity from remote mode, IP,
+reader defaults, paths, or station aliases, and do not modify the updater or
+production config merely to release this canary.
 
 ## Purpose
 
