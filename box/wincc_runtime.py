@@ -587,6 +587,16 @@ START_SEQUENCE_DIAGNOSTIC_TAGS = (
     "H2-Frequ", "H3-Frequ",
 )
 
+# Exact read-only excitation values recovered from the H2/H3 start pictures.
+# Both Button1 objects call GetTagDouble for the matching source and have a
+# matching CTrigger.  Keep them diagnostic-only until two fresh Runtime
+# shipments establish type, state, value, and scale.  H1Excit is deliberately
+# excluded because its recovered CTrigger references H2Excit.
+START_EXCITATION_DIAGNOSTIC_TAGS = (
+    "H2Excit",
+    "H3Excit",
+)
+
 # Exact native event names recovered from the trend operator screen.  Keep
 # these diagnostic-only until fresh Runtime shipments establish a healthy
 # state and station-2 semantics.  Connect graduated to the curated canonical
@@ -611,6 +621,7 @@ SCADA_DIAGNOSTIC_TAGS = (
     BASE_SCADA_DIAGNOSTIC_TAGS +
     MHY2_DIAGNOSTIC_TAGS +
     START_SEQUENCE_DIAGNOSTIC_TAGS +
+    START_EXCITATION_DIAGNOSTIC_TAGS +
     OPERATOR_DIAGNOSTIC_TAGS +
     H2_DIRECTIONAL_ENERGY_DIAGNOSTIC_TAGS
 )

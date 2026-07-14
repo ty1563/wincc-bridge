@@ -1134,6 +1134,24 @@ class WinCCRuntimeProbeTests(unittest.TestCase):
             )
         )
 
+    def test_start_excitation_diagnostics_are_exact_and_not_canonical(self):
+        self.assertEqual(
+            wincc_runtime.START_EXCITATION_DIAGNOSTIC_TAGS,
+            (
+                "H2Excit",
+                "H3Excit",
+            ),
+        )
+        canonical_sources = {
+            spec["name"] for spec in wincc_runtime.STATION2_CURATED_SPECS
+        }
+        self.assertTrue(
+            set(
+                wincc_runtime.START_EXCITATION_DIAGNOSTIC_TAGS
+            ).isdisjoint(canonical_sources)
+        )
+        self.assertNotIn("H1Excit", wincc_runtime.SCADA_DIAGNOSTIC_TAGS)
+
     def test_h2_directional_energy_diagnostics_are_exact_and_not_canonical(self):
         self.assertEqual(
             wincc_runtime.H2_DIRECTIONAL_ENERGY_DIAGNOSTIC_TAGS,
@@ -1200,7 +1218,7 @@ class WinCCRuntimeProbeTests(unittest.TestCase):
             candidate_limit=0,
         )
 
-        self.assertEqual(result["exact"]["requested"], 90)
+        self.assertEqual(result["exact"]["requested"], 92)
         self.assertEqual(result["exact"]["found"], 4)
         self.assertEqual(
             [item["name"] for item in result["exact"]["tags"]],
@@ -1388,7 +1406,7 @@ class WinCCRuntimeProbeTests(unittest.TestCase):
             candidate_limit=0,
         )
 
-        self.assertEqual(result["exact"]["requested"], 90)
+        self.assertEqual(result["exact"]["requested"], 92)
         self.assertEqual(result["exact"]["found"], 3)
         self.assertEqual(result["exact"]["missing"], [
             name for name in wincc_runtime.SCADA_DIAGNOSTIC_TAGS
@@ -1407,15 +1425,92 @@ class WinCCRuntimeProbeTests(unittest.TestCase):
         )
         self.assertEqual(api.read_names, list(wincc_runtime.OPERATOR_DIAGNOSTIC_TAGS))
 
+    def test_start_excitation_diagnostics_are_read_only_on_reviewed_project(self):
+        class ExcitationAPI:
+            def __init__(self, project):
+                self.project = project
+                self.read_names = []
+
+            def connect(self):
+                pass
+
+            def disconnect(self):
+                pass
+
+            def runtime_project(self):
+                return self.project
+
+            def enumerate_tags(self, project):
+                return [
+                    {"id": 1, "name": "H1Excit"},
+                    {"id": 2, "name": "H2Excit"},
+                    {"id": 3, "name": "H3Excit"},
+                ]
+
+            def tag_type(self, project, tag):
+                return {"code": 8, "name": "Float", "size": 4}
+
+            def read_numeric(self, name, type_code):
+                self.read_names.append(name)
+                return {
+                    "value": {"H2Excit": 24.0, "H3Excit": 25.0}[name],
+                    "state": 0,
+                    "quality": None,
+                }
+
+        reviewed = ExcitationAPI(
+            r"C:\SCADA\Dakrosa2\WInCC_Backup_30_10_2020.mcp"
+        )
+        result = probe_runtime(
+            api_factory=lambda: reviewed,
+            station_name="Dakrosa2",
+            inventory_limit=0,
+            candidate_limit=0,
+        )
+        self.assertEqual(result["exact"]["requested"], 92)
+        self.assertEqual(
+            [item["name"] for item in result["exact"]["tags"]],
+            list(wincc_runtime.START_EXCITATION_DIAGNOSTIC_TAGS),
+        )
+        self.assertEqual(
+            reviewed.read_names,
+            list(wincc_runtime.START_EXCITATION_DIAGNOSTIC_TAGS),
+        )
+
+        station1 = ExcitationAPI(
+            r"C:\SCADA\Dakrosa2\WInCC_Backup_30_10_2020.mcp"
+        )
+        station1_result = probe_runtime(
+            api_factory=lambda: station1,
+            station_name="Dakrosa1",
+            inventory_limit=0,
+            candidate_limit=0,
+        )
+        self.assertEqual(station1_result["exact"]["requested"], 0)
+        self.assertEqual(station1.read_names, [])
+
+        mismatched = ExcitationAPI(r"C:\SCADA\Dakrosa2\Unexpected.mcp")
+        mismatch_result = probe_runtime(
+            api_factory=lambda: mismatched,
+            station_name="Dakrosa2",
+            inventory_limit=0,
+            candidate_limit=0,
+        )
+        self.assertEqual(mismatch_result["exact"]["requested"], 0)
+        self.assertEqual(mismatched.read_names, [])
+
     def test_default_diagnostic_allowlist_contains_new_sources_once(self):
         names = wincc_runtime.SCADA_DIAGNOSTIC_TAGS
         folded = [name.lower() for name in names]
 
-        self.assertEqual(len(names), 90)
+        self.assertEqual(len(names), 92)
         self.assertEqual(len(folded), len(set(folded)))
         self.assertTrue(set(wincc_runtime.MHY2_DIAGNOSTIC_TAGS) <= set(names))
         self.assertTrue(set(wincc_runtime.START_SEQUENCE_DIAGNOSTIC_TAGS) <= set(names))
         self.assertTrue(set(wincc_runtime.OPERATOR_DIAGNOSTIC_TAGS) <= set(names))
+        self.assertTrue(
+            set(wincc_runtime.START_EXCITATION_DIAGNOSTIC_TAGS) <= set(names)
+        )
         self.assertTrue(
             set(wincc_runtime.H2_DIRECTIONAL_ENERGY_DIAGNOSTIC_TAGS) <= set(names)
         )
