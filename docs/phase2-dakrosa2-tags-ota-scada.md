@@ -1,6 +1,10 @@
 # Phase 2 spec: Dakrosa2 tags, 3-minute OTA check, and workstation SCADA view
 
-Bridge candidate release: `1.5.16`.
+Bridge candidate release: `1.5.17`.
+
+Release `1.5.17` only raises the Dakrosa2 `Domo` validation ceiling for the
+observed read-only sample. It does not change updater, OTA scheduling, NSSM, or
+station service behavior.
 
 ## Objective
 
@@ -206,7 +210,7 @@ until their engineering scale is separately verified.
 | `OpenFull`, `CloseFull`, `MotorStatus` | `scada_*_raw` feedback keys | 0..1 |
 | `Quatai`, `Loipha`, `Apsuatcao` | overload/phase/high-pressure raw keys | 0..1 |
 | `remoterlocal` | `scada_remote_local_raw` | 0..1 |
-| `Domo` | `scada_opening_raw` | 0..110 |
+| `Domo` | `scada_opening_raw` | 0..120 |
 | `Apsuat1`, `Apsuat2` | `scada_pressure_1/2_raw` | -100..100 |
 | `apKTH1/2/3` | `u1/2/3_excitation_voltage_raw` | 0..1,000 |
 | `dongKTH1/2/3` | `u1/2/3_excitation_current_raw` | 0..1,000 |
@@ -214,6 +218,11 @@ until their engineering scale is separately verified.
 These names are read-only observations. The `_raw` suffix is intentional until
 the original labels, units, and bit semantics are confirmed from the PDL object
 properties and at least two live operating states.
+
+Production returned `Domo=110.925926` with `state=0`, above the prior validation
+guard. The temporary ceiling is therefore 120 cm so that observed sample is not
+dropped. Values above 120 cm remain rejected; the configured engineering and
+WinCC display maxima have not been independently confirmed.
 
 ## Testing strategy
 

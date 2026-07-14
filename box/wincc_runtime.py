@@ -364,7 +364,10 @@ def _station2_curated_specs():
         ("Quatai", "scada_overload_raw", 0.0, 1.0),
         ("Loipha", "scada_phase_fault_raw", 0.0, 1.0),
         ("remoterlocal", "scada_remote_local_raw", 0.0, 1.0),
-        ("Domo", "scada_opening_raw", 0.0, 110.0),
+        # Production returned 110.925926 with state=0, above the prior guard.
+        # Keep a temporary 120 ceiling so the observed sample is not dropped;
+        # the configured engineering maximum is not independently confirmed.
+        ("Domo", "scada_opening_raw", 0.0, 120.0),
         ("Apsuat1", "scada_pressure_1_raw", -100.0, 100.0),
         ("Apsuat2", "scada_pressure_2_raw", -100.0, 100.0),
         ("Apsuatcao", "scada_high_pressure_raw", 0.0, 1.0),
