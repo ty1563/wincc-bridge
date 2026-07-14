@@ -81,10 +81,39 @@ Before release, both stations were healthy on `1.5.22`:
 4. Review at least two fresh raw shipments.  For every new source, record
    found/missing, Runtime type and size, value, state, quality, and error.
 5. Promote only finite numeric sources with state zero and plausible values in
-   a later separately reviewed bridge and portal release.  Keep
-   `H1_temp11`/`Hn-KVArh` diagnostic if type, state, scale, or units remain
-   unresolved.
+   a later separately reviewed bridge and portal release.  If a counter's
+   scale or unit remains unresolved, promotion is limited to a source-
+   preserving `_raw` key with no inferred unit or conversion.
 
 If either station regresses, publish a separately reviewed higher version.
 Never downgrade `version.txt` or modify the installed OTA/service mechanism in
 place.
+
+## Production result for 1.5.23
+
+Both stations advanced through the existing OTA path without direct host
+access.  Dakrosa1 first reported `1.5.23` at approximately
+`2026-07-14T15:54:04Z`; Dakrosa2 reported the same release during the next
+public health poll.
+
+- Dakrosa1 retained 29 published tags and no snapshot error.
+- Dakrosa2 retained 208 published tags in Runtime mode, with 193 curated
+  attempts, 190 accepted samples, and zero callback errors.
+- The exact list increased to 106 as designed, found 105 names, denied none,
+  and continued to miss only `DCTC-`.
+
+Two independent post-OTA raw shipments were reviewed:
+
+| Received | Dump time | Exact result | New parameter sources |
+| --- | --- | --- | --- |
+| `2026-07-14T15:55:49.625Z` | `15:54:58Z` | 106 requested, 105 found | all 16 Float32, size 4, state 0 |
+| `2026-07-14T16:00:48.507Z` | `15:59:58Z` | 106 requested, 105 found | all 16 Float32, size 4, state 0 |
+
+Every source was finite and error-free.  The phase values moved plausibly
+between shipments, including H2 `KW1` 389.098 to 384.356 and H3 `KWA3`
+-203.614 to -200.341.  `H1_temp11` remained 46.5, while the three `KVArh`
+counters remained finite and stable near 2260.04, 2262.40, and 2226.78.
+
+This result authorizes a later project-gated canonical release.  It does not
+authorize interpreting `KWA1/KWA3` as apparent power, removing the sign of a
+reactive value, or inventing a scale for `KVArh`.

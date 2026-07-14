@@ -404,9 +404,9 @@ class WinCCRuntimeProbeTests(unittest.TestCase):
             "LV-Utb": (0.0, 50.0, False),
         }
 
-        self.assertEqual(len(specs), 193)
+        self.assertEqual(len(specs), 209)
         self.assertEqual(
-            sum(len(spec["keys"]) for spec in specs.values()), 212)
+            sum(len(spec["keys"]) for spec in specs.values()), 228)
         for source_name, canonical_keys in expected_keys.items():
             self.assertIn(source_name, specs)
             self.assertEqual(specs[source_name]["keys"], canonical_keys)
@@ -516,8 +516,8 @@ class WinCCRuntimeProbeTests(unittest.TestCase):
         }
 
         self.assertEqual(len(expected), 52)
-        self.assertEqual(len(specs), 193)
-        self.assertEqual(sum(len(spec["keys"]) for spec in specs.values()), 212)
+        self.assertEqual(len(specs), 209)
+        self.assertEqual(sum(len(spec["keys"]) for spec in specs.values()), 228)
         self.assertLessEqual(len(specs), 256)
         for source_name, (keys, low, high) in expected.items():
             self.assertIn(source_name, specs)
@@ -604,7 +604,7 @@ class WinCCRuntimeProbeTests(unittest.TestCase):
         )
         self.assertNotIn("H2-Frequ", other.names)
         self.assertNotIn("u2_start_frequency_raw", other_result["tags"])
-        self.assertEqual(other_result["project_gated_skipped"], 53)
+        self.assertEqual(other_result["project_gated_skipped"], 69)
 
     def test_phase5_connect_maps_only_healthy_binary_runtime_values(self):
         class ConnectAPI:
@@ -1200,7 +1200,7 @@ class WinCCRuntimeProbeTests(unittest.TestCase):
             candidate_limit=0,
         )
 
-        self.assertEqual(result["exact"]["requested"], 106)
+        self.assertEqual(result["exact"]["requested"], 90)
         self.assertEqual(result["exact"]["found"], 4)
         self.assertEqual(
             [item["name"] for item in result["exact"]["tags"]],
@@ -1235,29 +1235,50 @@ class WinCCRuntimeProbeTests(unittest.TestCase):
         self.assertEqual(mismatch_result["exact"]["requested"], 0)
         self.assertEqual(mismatched.read_names, [])
 
-    def test_parameter_screen_diagnostics_are_exact_and_not_canonical(self):
-        self.assertEqual(
-            wincc_runtime.PARAMETER_SCREEN_DIAGNOSTIC_TAGS,
-            (
-                "H1_temp11",
-                "H1-KW1", "H1-KWA1", "H1-KW3", "H1-KWA3", "H1-KVArh",
-                "H2-KW1", "H2-KWA1", "H2-KW3", "H2-KWA3", "H2-KVArh",
-                "H3-KW1", "H3-KWA1", "H3-KW3", "H3-KWA3", "H3-KVArh",
-            ),
-        )
-        canonical_sources = {
-            spec["name"] for spec in wincc_runtime.STATION2_CURATED_SPECS
+    def test_phase9_parameter_sources_are_curated_and_not_diagnostic(self):
+        specs = {
+            spec["name"]: spec
+            for spec in wincc_runtime.STATION2_CURATED_SPECS
         }
-        self.assertTrue(
-            set(wincc_runtime.PARAMETER_SCREEN_DIAGNOSTIC_TAGS).isdisjoint(
-                canonical_sources
-            )
-        )
+        expected = {
+            "H1_temp11": (("u1_temp11",), 5.0, 150.0),
+        }
+        for unit in (1, 2, 3):
+            prefix = "u%d_" % unit
+            expected.update({
+                "H%d-KW1" % unit: (
+                    (prefix + "phase_a_active_power_raw",),
+                    -10000.0, 10000.0),
+                "H%d-KWA1" % unit: (
+                    (prefix + "phase_a_reactive_power_raw",),
+                    -10000.0, 10000.0),
+                "H%d-KW3" % unit: (
+                    (prefix + "phase_c_active_power_raw",),
+                    -10000.0, 10000.0),
+                "H%d-KWA3" % unit: (
+                    (prefix + "phase_c_reactive_power_raw",),
+                    -10000.0, 10000.0),
+                "H%d-KVArh" % unit: (
+                    (prefix + "reactive_energy_raw",),
+                    0.0, 1.0e9),
+            })
 
-    def test_parameter_screen_diagnostics_preserve_runtime_type_state_and_value(self):
+        self.assertEqual(len(expected), 16)
+        for source, (keys, low, high) in expected.items():
+            self.assertEqual(specs[source]["keys"], keys)
+            self.assertEqual(specs[source]["min"], low)
+            self.assertEqual(specs[source]["max"], high)
+            self.assertFalse(specs[source]["required"])
+            self.assertEqual(
+                specs[source]["project_files"],
+                wincc_runtime.DAKROSA2_RUNTIME_PROJECT_FILES,
+            )
+            self.assertNotIn(source, wincc_runtime.SCADA_DIAGNOSTIC_TAGS)
+
+    def test_phase9_parameter_sources_map_only_healthy_runtime_values(self):
         class ParameterAPI:
-            def __init__(self):
-                self.read_names = []
+            def __init__(self, values):
+                self.values = values
 
             def connect(self):
                 pass
@@ -1268,52 +1289,59 @@ class WinCCRuntimeProbeTests(unittest.TestCase):
             def runtime_project(self):
                 return r"C:\SCADA\Dakrosa2\WInCC_Backup_30_10_2020.mcp"
 
-            def enumerate_tags(self, project):
-                return [
-                    {"id": index, "name": name}
-                    for index, name in enumerate(
-                        wincc_runtime.PARAMETER_SCREEN_DIAGNOSTIC_TAGS,
-                        1,
-                    )
-                ]
+            def read_numerics(self, names, type_code):
+                return self.values
 
-            def tag_type(self, project, tag):
-                return {"code": 8, "name": "Float", "size": 4}
+        values = {
+            "H1_temp11": {"value": 46.5, "state": 0, "quality": None},
+        }
+        for unit in (1, 2, 3):
+            values.update({
+                "H%d-KW1" % unit: {
+                    "value": 380.0 + unit, "state": 0, "quality": None},
+                "H%d-KWA1" % unit: {
+                    "value": 240.0 + unit, "state": 0, "quality": None},
+                "H%d-KW3" % unit: {
+                    "value": 420.0 + unit, "state": 0, "quality": None},
+                "H%d-KWA3" % unit: {
+                    "value": -190.0 - unit, "state": 0, "quality": None},
+                "H%d-KVArh" % unit: {
+                    "value": 2200.0 + unit, "state": 0, "quality": None},
+            })
 
-            def read_numeric(self, name, type_code):
-                self.read_names.append(name)
-                value = float(
-                    wincc_runtime.PARAMETER_SCREEN_DIAGNOSTIC_TAGS.index(name)
-                ) + 0.25
-                return {"value": value, "state": 0, "quality": 192}
-
-        api = ParameterAPI()
-        result = probe_runtime(
-            api_factory=lambda: api,
-            station_name="Dakrosa2",
-            inventory_limit=0,
-            candidate_limit=0,
+        result = read_curated_snapshot(
+            "Dakrosa2", "2026-07-14T16:00:00Z",
+            api_factory=lambda: ParameterAPI(values),
         )
-
-        self.assertEqual(result["exact"]["requested"], 106)
-        self.assertEqual(result["exact"]["found"], 16)
+        self.assertEqual(result["tags"]["u1_temp11"]["last"], 46.5)
         self.assertEqual(
-            api.read_names,
-            list(wincc_runtime.PARAMETER_SCREEN_DIAGNOSTIC_TAGS),
-        )
+            result["tags"]["u2_phase_a_active_power_raw"]["last"], 382.0)
         self.assertEqual(
-            [
-                (item["name"], item["type_code"], item["value"],
-                 item["state"], item["quality"])
-                for item in result["exact"]["tags"]
-            ],
-            [
-                (name, 8, float(index) + 0.25, 0, 192)
-                for index, name in enumerate(
-                    wincc_runtime.PARAMETER_SCREEN_DIAGNOSTIC_TAGS
-                )
-            ],
+            result["tags"]["u3_phase_c_reactive_power_raw"]["last"], -193.0)
+        self.assertEqual(
+            result["tags"]["u1_reactive_energy_raw"]["last"], 2201.0)
+
+        invalid = dict(values)
+        invalid["H1_temp11"] = {
+            "value": 151.0, "state": 0, "quality": None}
+        invalid["H1-KVArh"] = {
+            "value": -1.0, "state": 0, "quality": None}
+        invalid["H2-KW1"] = {
+            "value": 382.0, "state": 257, "quality": None}
+        rejected = read_curated_snapshot(
+            "Dakrosa2", "2026-07-14T16:00:01Z",
+            api_factory=lambda: ParameterAPI(invalid),
         )
+        self.assertNotIn("u1_temp11", rejected["tags"])
+        self.assertNotIn("u1_reactive_energy_raw", rejected["tags"])
+        self.assertNotIn("u2_phase_a_active_power_raw", rejected["tags"])
+
+        station1 = read_curated_snapshot(
+            "Dakrosa1", "2026-07-14T16:00:02Z",
+            api_factory=lambda: ParameterAPI(values),
+        )
+        self.assertEqual(station1["attempted"], 0)
+        self.assertNotIn("u1_temp11", station1["tags"])
 
     def test_operator_diagnostics_are_read_only_on_the_exact_dakrosa2_project(self):
         class OperatorAPI:
@@ -1360,7 +1388,7 @@ class WinCCRuntimeProbeTests(unittest.TestCase):
             candidate_limit=0,
         )
 
-        self.assertEqual(result["exact"]["requested"], 106)
+        self.assertEqual(result["exact"]["requested"], 90)
         self.assertEqual(result["exact"]["found"], 3)
         self.assertEqual(result["exact"]["missing"], [
             name for name in wincc_runtime.SCADA_DIAGNOSTIC_TAGS
@@ -1383,16 +1411,13 @@ class WinCCRuntimeProbeTests(unittest.TestCase):
         names = wincc_runtime.SCADA_DIAGNOSTIC_TAGS
         folded = [name.lower() for name in names]
 
-        self.assertEqual(len(names), 106)
+        self.assertEqual(len(names), 90)
         self.assertEqual(len(folded), len(set(folded)))
         self.assertTrue(set(wincc_runtime.MHY2_DIAGNOSTIC_TAGS) <= set(names))
         self.assertTrue(set(wincc_runtime.START_SEQUENCE_DIAGNOSTIC_TAGS) <= set(names))
         self.assertTrue(set(wincc_runtime.OPERATOR_DIAGNOSTIC_TAGS) <= set(names))
         self.assertTrue(
             set(wincc_runtime.H2_DIRECTIONAL_ENERGY_DIAGNOSTIC_TAGS) <= set(names)
-        )
-        self.assertTrue(
-            set(wincc_runtime.PARAMETER_SCREEN_DIAGNOSTIC_TAGS) <= set(names)
         )
         self.assertFalse(any("command" in name or name.startswith("click") for name in folded))
 

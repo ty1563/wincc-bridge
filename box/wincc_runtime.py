@@ -461,6 +461,44 @@ def _station2_curated_specs():
             "project_files": DAKROSA2_RUNTIME_PROJECT_FILES,
         })
 
+    # Exact parameter-picture sources proven healthy in two consecutive
+    # Phase 8 Runtime shipments.  Preserve the native phase values as raw
+    # fields: KW1/KW3 are PA/PC in kW, while KWA1/KWA3 are QA/QC in kVAr
+    # despite the native KWA spelling.  Keep signed Q values and do not infer
+    # a scale for the KVArh counter.
+    parameter_metrics = (
+        ("H1_temp11", "u1_temp11", 5.0, 150.0),
+    )
+    for unit_number in (1, 2, 3):
+        source_prefix = "H%d" % unit_number
+        key_prefix = "u%d_" % unit_number
+        parameter_metrics += (
+            (source_prefix + "-KW1",
+             key_prefix + "phase_a_active_power_raw",
+             -10000.0, 10000.0),
+            (source_prefix + "-KWA1",
+             key_prefix + "phase_a_reactive_power_raw",
+             -10000.0, 10000.0),
+            (source_prefix + "-KW3",
+             key_prefix + "phase_c_active_power_raw",
+             -10000.0, 10000.0),
+            (source_prefix + "-KWA3",
+             key_prefix + "phase_c_reactive_power_raw",
+             -10000.0, 10000.0),
+            (source_prefix + "-KVArh",
+             key_prefix + "reactive_energy_raw",
+             0.0, 1.0e9),
+        )
+    for source_name, key, low, high in parameter_metrics:
+        specs.append({
+            "name": source_name,
+            "keys": (key,),
+            "min": low,
+            "max": high,
+            "required": False,
+            "project_files": DAKROSA2_RUNTIME_PROJECT_FILES,
+        })
+
     # Connect is preserved as a neutral raw binary.  Two Phase 5 production
     # shipments proved type/state/value transport, but not process semantics.
     specs.append({
@@ -569,24 +607,12 @@ H2_DIRECTIONAL_ENERGY_DIAGNOSTIC_TAGS = (
     "MVARHNX_INTER_MH2",
 )
 
-# Direct OutputValue links from the three unit parameter pictures.  KWA is a
-# native name only: the PDL labels those fields QA/QC in kVAr, not kVA.  Keep
-# every source diagnostic until Runtime proves type/state and no unit/scale is
-# assigned here.  H1_temp11 and KVArh are included for availability evidence.
-PARAMETER_SCREEN_DIAGNOSTIC_TAGS = (
-    "H1_temp11",
-    "H1-KW1", "H1-KWA1", "H1-KW3", "H1-KWA3", "H1-KVArh",
-    "H2-KW1", "H2-KWA1", "H2-KW3", "H2-KWA3", "H2-KVArh",
-    "H3-KW1", "H3-KWA1", "H3-KW3", "H3-KWA3", "H3-KVArh",
-)
-
 SCADA_DIAGNOSTIC_TAGS = (
     BASE_SCADA_DIAGNOSTIC_TAGS +
     MHY2_DIAGNOSTIC_TAGS +
     START_SEQUENCE_DIAGNOSTIC_TAGS +
     OPERATOR_DIAGNOSTIC_TAGS +
-    H2_DIRECTIONAL_ENERGY_DIAGNOSTIC_TAGS +
-    PARAMETER_SCREEN_DIAGNOSTIC_TAGS
+    H2_DIRECTIONAL_ENERGY_DIAGNOSTIC_TAGS
 )
 
 class WinCCRuntimeAPI:
