@@ -7,6 +7,8 @@ import subprocess
 from bridge import detect
 
 _key_secured = False
+D1_OLEDB_HELPER = "d1_oledb_canary.py"
+D1_OLEDB_TIMEOUT_SEC = 15
 
 
 def _secure_key(key):
@@ -168,6 +170,86 @@ def _runtime_probe_args(cfg):
     return []
 
 
+def _config_enabled(value, default=False):
+    if value is None:
+        return bool(default)
+    if isinstance(value, str):
+        return value.strip().lower() not in ("0", "false", "no", "off", "")
+    return bool(value)
+
+
+def _d1_oledb_probe_enabled(cfg):
+    station = cfg.get("station", {})
+    if str(station.get("name") or "").strip().lower() != "dakrosa1":
+        return False
+    return _config_enabled(station.get("d1_oledb_value_probe"), default=True)
+
+
+def _d1_oledb_helper_path(reader):
+    normalized = str(reader).replace("\\", "/")
+    parent = normalized.rsplit("/", 1)[0]
+    return "%s/%s" % (parent, D1_OLEDB_HELPER)
+
+
+def _d1_probe_failure(status, returncode=None, error_type=None):
+    result = {
+        "available": False,
+        "backend": "wincc-oledb-valuename",
+        "status": status,
+    }
+    if returncode is not None:
+        result["returncode"] = int(returncode)
+    if error_type:
+        result["error"] = str(error_type)[:80]
+    return result
+
+
+def _reject_json_constant(value):
+    raise ValueError("non-standard JSON constant: %s" % value)
+
+
+def _collect_d1_oledb_probe(cfg, remote_base=None):
+    """Run the D1 canary after raw capture; every failure returns diagnostics."""
+    if not _d1_oledb_probe_enabled(cfg):
+        return None
+    w = cfg["winccbox"]
+    helper = _d1_oledb_helper_path(w["reader"])
+    mode = str(w.get("mode") or "remote").lower()
+    if mode == "local":
+        cmd = [w["python32"], helper, "--station", "Dakrosa1", "--raw-canary"]
+        env = _station_env(cfg)
+    else:
+        cmd = list(remote_base or _ssh_base(cfg)) + [
+            w["python32"], helper, "--station", "Dakrosa1", "--raw-canary"]
+        env = None
+    try:
+        p = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=D1_OLEDB_TIMEOUT_SEC,
+            env=env,
+            encoding="utf-8",
+            errors="replace",
+        )
+    except subprocess.TimeoutExpired:
+        return _d1_probe_failure("timeout")
+    except Exception as error:
+        return _d1_probe_failure("launch_error", error_type=type(error).__name__)
+    if p.returncode != 0:
+        return _d1_probe_failure("process_error", returncode=p.returncode)
+    try:
+        payload = json.loads(
+            p.stdout or "", parse_constant=_reject_json_constant)
+        if not isinstance(payload, dict):
+            raise ValueError("canary root is not an object")
+        if payload.get("backend") != "wincc-oledb-valuename":
+            raise ValueError("unexpected canary backend")
+        return payload
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return _d1_probe_failure("invalid_output")
+
+
 def collect_rawdump(cfg):
     """Chay reader o che do DUMP RAW: tra JSON chua block TagCompressed tho
     (b64) + ban do ten tag, de service POST len server decode.
@@ -176,6 +258,7 @@ def collect_rawdump(cfg):
       (SSH KHONG forward env var -> phai dung CLI flag).
     Dump nang hon snapshot thuong -> timeout 150s, 1 lan (chu ky sau tu thu lai)."""
     w = cfg["winccbox"]
+    remote_base = None
     if (w.get("mode") or "").lower() == "local":
         env = _station_env(cfg)
         env["WINCC_DUMP_RAW"] = "1"
@@ -183,12 +266,20 @@ def collect_rawdump(cfg):
         p = subprocess.run(cmd, capture_output=True, text=True, timeout=150,
                            env=env, encoding="utf-8", errors="replace")
     else:
-        cmd = (_ssh_base(cfg) + [w["python32"], w["reader"], "--dump-raw"] +
+        remote_base = _ssh_base(cfg)
+        cmd = (remote_base + [w["python32"], w["reader"], "--dump-raw"] +
                _runtime_probe_args(cfg))
         p = subprocess.run(cmd, capture_output=True, text=True, timeout=150,
                            encoding="utf-8", errors="replace")
     if p.returncode == 0 and p.stdout.strip():
-        return json.loads(p.stdout)
+        dump = json.loads(p.stdout)
+        if not isinstance(dump, dict):
+            raise ValueError("rawdump root is not an object")
+        if "oledb_value_probe" not in dump:
+            probe = _collect_d1_oledb_probe(cfg, remote_base=remote_base)
+            if probe is not None:
+                dump["oledb_value_probe"] = probe
+        return dump
     raise RuntimeError(f"rawdump that bai: {(p.stderr or p.stdout or 'rong')[:200]}")
 
 

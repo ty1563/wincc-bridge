@@ -30,6 +30,8 @@ class StationReaderSyncTests(unittest.TestCase):
             f.write(b"current-reader")
         with open(os.path.join(box, "wincc_runtime.py"), "wb") as f:
             f.write(b"current-runtime")
+        with open(os.path.join(box, "d1_oledb_canary.py"), "wb") as f:
+            f.write(b"current-d1-canary")
 
     def _cfg(self, station):
         return {
@@ -69,8 +71,10 @@ class StationReaderSyncTests(unittest.TestCase):
 
         reader_target = "dell@169.254.1.2:win32deploy/oledb_reader.py"
         runtime_target = "dell@169.254.1.2:win32deploy/wincc_runtime.py"
+        canary_target = "dell@169.254.1.2:win32deploy/d1_oledb_canary.py"
         self.assertEqual(uploads[reader_target], legacy)
         self.assertEqual(uploads[runtime_target], b"current-runtime")
+        self.assertEqual(uploads[canary_target], b"current-d1-canary")
         opened.assert_called_once_with(updater.DAKROSA1_LEGACY_READER_URL, timeout=30)
 
     def test_dakrosa2_syncs_current_reader_without_fetching_legacy_file(self):
@@ -89,7 +93,9 @@ class StationReaderSyncTests(unittest.TestCase):
                 updater._sync_box(self._cfg("Dakrosa2"))
 
         reader_target = "dell@169.254.1.2:win32deploy/oledb_reader.py"
+        canary_target = "dell@169.254.1.2:win32deploy/d1_oledb_canary.py"
         self.assertEqual(uploads[reader_target], b"current-reader")
+        self.assertEqual(uploads[canary_target], b"current-d1-canary")
         opened.assert_not_called()
 
     def test_startup_self_heal_syncs_only_dakrosa1(self):
