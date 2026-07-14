@@ -559,11 +559,22 @@ OPERATOR_DIAGNOSTIC_TAGS = (
     "EVENT_TYPE_MH3",
 )
 
+# Exact read-only OutputValue links recovered from the complete BangkwhH2.PDL
+# child picture.  Keep these directional energy counters diagnostic-only until
+# two fresh Runtime shipments establish availability, type, state, and scale.
+H2_DIRECTIONAL_ENERGY_DIAGNOSTIC_TAGS = (
+    "MWHPX_INTER_MH2",
+    "MWHNX_INTER_MH2",
+    "MVARHPX_INTER_MH2",
+    "MVARHNX_INTER_MH2",
+)
+
 SCADA_DIAGNOSTIC_TAGS = (
     BASE_SCADA_DIAGNOSTIC_TAGS +
     MHY2_DIAGNOSTIC_TAGS +
     START_SEQUENCE_DIAGNOSTIC_TAGS +
-    OPERATOR_DIAGNOSTIC_TAGS
+    OPERATOR_DIAGNOSTIC_TAGS +
+    H2_DIRECTIONAL_ENERGY_DIAGNOSTIC_TAGS
 )
 
 class WinCCRuntimeAPI:

@@ -1134,6 +1134,107 @@ class WinCCRuntimeProbeTests(unittest.TestCase):
             )
         )
 
+    def test_h2_directional_energy_diagnostics_are_exact_and_not_canonical(self):
+        self.assertEqual(
+            wincc_runtime.H2_DIRECTIONAL_ENERGY_DIAGNOSTIC_TAGS,
+            (
+                "MWHPX_INTER_MH2",
+                "MWHNX_INTER_MH2",
+                "MVARHPX_INTER_MH2",
+                "MVARHNX_INTER_MH2",
+            ),
+        )
+        canonical_sources = {
+            spec["name"] for spec in wincc_runtime.STATION2_CURATED_SPECS
+        }
+        self.assertTrue(
+            set(
+                wincc_runtime.H2_DIRECTIONAL_ENERGY_DIAGNOSTIC_TAGS
+            ).isdisjoint(canonical_sources)
+        )
+
+    def test_h2_directional_energy_diagnostics_read_only_on_reviewed_project(self):
+        class DirectionalEnergyAPI:
+            def __init__(self, project):
+                self.project = project
+                self.read_names = []
+
+            def connect(self):
+                pass
+
+            def disconnect(self):
+                pass
+
+            def runtime_project(self):
+                return self.project
+
+            def enumerate_tags(self, project):
+                return [
+                    {"id": index, "name": name}
+                    for index, name in enumerate(
+                        wincc_runtime.H2_DIRECTIONAL_ENERGY_DIAGNOSTIC_TAGS,
+                        1,
+                    )
+                ]
+
+            def tag_type(self, project, tag):
+                return {"code": 8, "name": "Float", "size": 4}
+
+            def read_numeric(self, name, type_code):
+                self.read_names.append(name)
+                values = {
+                    "MWHPX_INTER_MH2": 101.0,
+                    "MWHNX_INTER_MH2": 2.0,
+                    "MVARHPX_INTER_MH2": 33.0,
+                    "MVARHNX_INTER_MH2": 4.0,
+                }
+                return {"value": values[name], "state": 0, "quality": None}
+
+        reviewed = DirectionalEnergyAPI(
+            r"C:\SCADA\Dakrosa2\WInCC_Backup_30_10_2020.mcp"
+        )
+        result = probe_runtime(
+            api_factory=lambda: reviewed,
+            station_name="Dakrosa2",
+            inventory_limit=0,
+            candidate_limit=0,
+        )
+
+        self.assertEqual(result["exact"]["requested"], 90)
+        self.assertEqual(result["exact"]["found"], 4)
+        self.assertEqual(
+            [item["name"] for item in result["exact"]["tags"]],
+            list(wincc_runtime.H2_DIRECTIONAL_ENERGY_DIAGNOSTIC_TAGS),
+        )
+        self.assertEqual(
+            reviewed.read_names,
+            list(wincc_runtime.H2_DIRECTIONAL_ENERGY_DIAGNOSTIC_TAGS),
+        )
+
+        station1 = DirectionalEnergyAPI(
+            r"C:\SCADA\Dakrosa2\WInCC_Backup_30_10_2020.mcp"
+        )
+        station1_result = probe_runtime(
+            api_factory=lambda: station1,
+            station_name="Dakrosa1",
+            inventory_limit=0,
+            candidate_limit=0,
+        )
+        self.assertEqual(station1_result["exact"]["requested"], 0)
+        self.assertEqual(station1.read_names, [])
+
+        mismatched = DirectionalEnergyAPI(
+            r"C:\SCADA\Dakrosa2\Unexpected.mcp"
+        )
+        mismatch_result = probe_runtime(
+            api_factory=lambda: mismatched,
+            station_name="Dakrosa2",
+            inventory_limit=0,
+            candidate_limit=0,
+        )
+        self.assertEqual(mismatch_result["exact"]["requested"], 0)
+        self.assertEqual(mismatched.read_names, [])
+
     def test_operator_diagnostics_are_read_only_on_the_exact_dakrosa2_project(self):
         class OperatorAPI:
             def __init__(self):
@@ -1179,7 +1280,7 @@ class WinCCRuntimeProbeTests(unittest.TestCase):
             candidate_limit=0,
         )
 
-        self.assertEqual(result["exact"]["requested"], 86)
+        self.assertEqual(result["exact"]["requested"], 90)
         self.assertEqual(result["exact"]["found"], 3)
         self.assertEqual(result["exact"]["missing"], [
             name for name in wincc_runtime.SCADA_DIAGNOSTIC_TAGS
@@ -1202,11 +1303,14 @@ class WinCCRuntimeProbeTests(unittest.TestCase):
         names = wincc_runtime.SCADA_DIAGNOSTIC_TAGS
         folded = [name.lower() for name in names]
 
-        self.assertEqual(len(names), 86)
+        self.assertEqual(len(names), 90)
         self.assertEqual(len(folded), len(set(folded)))
         self.assertTrue(set(wincc_runtime.MHY2_DIAGNOSTIC_TAGS) <= set(names))
         self.assertTrue(set(wincc_runtime.START_SEQUENCE_DIAGNOSTIC_TAGS) <= set(names))
         self.assertTrue(set(wincc_runtime.OPERATOR_DIAGNOSTIC_TAGS) <= set(names))
+        self.assertTrue(
+            set(wincc_runtime.H2_DIRECTIONAL_ENERGY_DIAGNOSTIC_TAGS) <= set(names)
+        )
         self.assertFalse(any("command" in name or name.startswith("click") for name in folded))
 
     def test_exact_probe_hard_denies_click_and_command_channels(self):
