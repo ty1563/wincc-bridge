@@ -121,7 +121,10 @@ as an H1 state.
 - `12 <= realopeningN <= 16` drives one guide-vane condition.
 - `8 <= realopeningN <= 16` drives the adjacent guide-vane condition.
 - H2/H3 use exact `H2-Frequ` / `H3-Frequ` for the `>49 Hz` condition.
-- `49.5 <= Hn-Speed <= 50.5` uses the already curated exact speed source.
+- The recovered `49.5 <= Hn-Speed <= 50.5` script conflicts with live Runtime
+  evidence: `Hn-Speed` is approximately 501 rpm, not 50 Hz. Those display
+  conditions remain unresolved and must not be derived from the curated speed
+  source.
 
 Never alias `realopeningN` to `uN_GV`, or `Hn-Frequ` to another frequency
 source, without fresh same-snapshot equality evidence.

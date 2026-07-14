@@ -537,10 +537,21 @@ START_SEQUENCE_DIAGNOSTIC_TAGS = (
     "H2-Frequ", "H3-Frequ",
 )
 
+# Exact native names recovered from the dam and trend operator screens.  Keep
+# these diagnostic-only until two fresh Runtime shipments establish their
+# type, state, value, and station-2 semantics.
+OPERATOR_DIAGNOSTIC_TAGS = (
+    "Connect",
+    "EVENT_TYPE_MH1",
+    "EVENT_TYPE_MH2",
+    "EVENT_TYPE_MH3",
+)
+
 SCADA_DIAGNOSTIC_TAGS = (
     BASE_SCADA_DIAGNOSTIC_TAGS +
     MHY2_DIAGNOSTIC_TAGS +
-    START_SEQUENCE_DIAGNOSTIC_TAGS
+    START_SEQUENCE_DIAGNOSTIC_TAGS +
+    OPERATOR_DIAGNOSTIC_TAGS
 )
 
 class WinCCRuntimeAPI:
