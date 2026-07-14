@@ -76,4 +76,31 @@ After both stations report `1.5.25` through the public API:
 
 ## Production result for 1.5.25
 
-Pending post-OTA evidence.
+The GitHub raw `main` endpoint exposed `1.5.25` by
+`2026-07-14T17:09:41Z`.  Both stations then advanced through their existing
+OTA path without direct host access:
+
+- Dakrosa2 first reported `1.5.25` at `17:11:56.193Z`, retained 224
+  published tags, remained in Runtime mode, attempted 209 curated specs,
+  accepted 206, rejected the same three optional samples, and retained zero
+  callback errors.
+- Dakrosa1 first reported `1.5.25` at `17:13:17.061Z`, retained its existing
+  21 source tags and 29-tag server-enriched contract, and reported no snapshot
+  error.  No Dakrosa1 reader, curated mapping, service, or OTA behavior changed.
+
+Two independent fresh Dakrosa2 raw shipments confirmed the new exact contract:
+
+| Received UTC | Dump UTC | Exact result | `H2Excit` | `H3Excit` |
+| --- | --- | --- | --- | --- |
+| `17:12:52.868Z` | `17:12:00Z` | 92 requested, 91 found; only `DCTC-` missing; none denied | ID 1776, Binary type 1, size 1, value 0, state 0, quality null | ID 1867, Binary type 1, size 1, value 0, state 0, quality null |
+| `17:17:51.874Z` | `17:17:02Z` | 92 requested, 91 found; only `DCTC-` missing; none denied | ID 1776, Binary type 1, size 1, value 0, state 0, quality null | ID 1867, Binary type 1, size 1, value 0, state 0, quality null |
+
+The public portal contract remained stable at 91 of 92 allowlisted raw values
+and all 100 readouts; the unrelated optional
+`scada_aux_lcu41_iw0_raw` remained the only absent raw value.  Both stations
+continued to report online without API errors.
+
+The two samples prove stable tag identity, binary type, and healthy Runtime
+state, but both values were zero.  They do not yet prove polarity or whether
+the source represents excitation status versus command availability.  Both
+names therefore remain diagnostic-only and no portal mapping is introduced.
