@@ -756,7 +756,8 @@ class WinCCRuntimeProbeTests(unittest.TestCase):
         self.assertEqual(result1["exact"]["requested"], 0)
         self.assertEqual(station1.read_names, [])
 
-        station2 = StationAPI(r"C:\SCADA\Dakrosa2\Dakrosa2.mcp")
+        station2 = StationAPI(
+            r"C:\SCADA\Dakrosa2\WInCC_Backup_30_10_2020.mcp")
         result2 = probe_runtime(
             api_factory=lambda: station2,
             station_name="Dakrosa2",
@@ -765,6 +766,26 @@ class WinCCRuntimeProbeTests(unittest.TestCase):
         )
         self.assertGreater(result2["exact"]["requested"], 0)
         self.assertEqual(station2.read_names, ["H1QFclose"])
+
+        mismatched = StationAPI(r"C:\SCADA\Dakrosa1\Dakrosa1.mcp")
+        mismatch_result = probe_runtime(
+            api_factory=lambda: mismatched,
+            station_name="Dakrosa2",
+            inventory_limit=0,
+            candidate_limit=0,
+        )
+        self.assertEqual(mismatch_result["exact"]["requested"], 0)
+        self.assertEqual(mismatched.read_names, [])
+
+        unknown_project = StationAPI(r"C:\SCADA\Dakrosa2\Dakrosa2.mcp")
+        unknown_result = probe_runtime(
+            api_factory=lambda: unknown_project,
+            station_name="Dakrosa2",
+            inventory_limit=0,
+            candidate_limit=0,
+        )
+        self.assertEqual(unknown_result["exact"]["requested"], 0)
+        self.assertEqual(unknown_project.read_names, [])
 
     def test_default_scada_diagnostic_allowlist_excludes_command_tags(self):
         folded = {name.lower() for name in wincc_runtime.SCADA_DIAGNOSTIC_TAGS}

@@ -96,10 +96,11 @@ The copied Dakrosa2 WinCC installation is
 
 ### Slice D — recovered SCADA tag diagnostics
 
-1. Only `station_name=Dakrosa2` enables `runtime_probe.exact`; the generic and
-   Dakrosa1 probe defaults remain empty. The bounded read-only allow-list was
-   recovered from `A_22kV.PDL` and covers breaker states, auxiliary states,
-   pressure/opening values, and unit current/voltage fields.
+1. Only `station_name=Dakrosa2` together with the reviewed Dakrosa2 Runtime
+   project filename enables `runtime_probe.exact`; a mismatch, the generic
+   probe, and Dakrosa1 all default to an empty exact list. The bounded read-only
+   allow-list was recovered from `A_22kV.PDL` and covers breaker states,
+   auxiliary states, pressure/opening values, and unit current/voltage fields.
 2. This evidence channel remains separate from the curated snapshot until each
    live type, Data Manager state, and physical range has been reviewed.
 3. Command/event tags `Click22`, `ClickH1`, `ClickH2`, and `ClickH3` are excluded

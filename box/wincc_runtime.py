@@ -467,6 +467,13 @@ SCADA_DIAGNOSTIC_TAGS = (
     START_SEQUENCE_DIAGNOSTIC_TAGS
 )
 
+# Observed from the fresh Dakrosa2 production raw probe before release 1.5.18.
+# Keep this strict: a renamed/changed Runtime project must fail closed until it
+# is reviewed as a new station identity.
+DAKROSA2_RUNTIME_PROJECT_FILES = frozenset((
+    "wincc_backup_30_10_2020.mcp",
+))
+
 
 class WinCCRuntimeAPI:
     """Thin adapter over WinCC's external 32-bit DMCLIENT API."""
@@ -879,10 +886,11 @@ def _exact_probe(api, project, tags, names, read_values):
 
 
 def build_probe(api, inventory_limit=4000, candidate_limit=512,
-                read_values=True, exact_names=()):
+                read_values=True, exact_names=(), project=None):
     """Build a bounded JSON-safe diagnostic payload from a WinCC API adapter."""
     try:
-        project = api.runtime_project()
+        if project is None:
+            project = api.runtime_project()
         tags = list(api.enumerate_tags(project))
         inventory_cap = max(0, int(inventory_limit))
         result = {
@@ -941,14 +949,21 @@ def probe_runtime(inventory_limit=4000, candidate_limit=512,
         if hasattr(api, "connect"):
             api.connect()
             connected = True
+        project = api.runtime_project()
         if exact_names is None:
             station = str(station_name or "").strip().lower()
-            exact_names = (SCADA_DIAGNOSTIC_TAGS
-                           if station == "dakrosa2" else ())
+            project_file = ntpath.basename(
+                str(project or "")).strip().lower()
+            if (station == "dakrosa2" and
+                    project_file in DAKROSA2_RUNTIME_PROJECT_FILES):
+                exact_names = SCADA_DIAGNOSTIC_TAGS
+            else:
+                exact_names = ()
         return build_probe(api, inventory_limit=inventory_limit,
                            candidate_limit=candidate_limit,
                            read_values=read_values,
-                           exact_names=exact_names)
+                           exact_names=exact_names,
+                           project=project)
     except Exception as exc:
         return {
             "available": False,

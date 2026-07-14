@@ -8,8 +8,12 @@ does not change the normal Runtime snapshot, and does not write to WinCC.
 
 ## Release boundary
 
-- `probe_runtime()` enables the default exact list only when the observed
-  station name is exactly `Dakrosa2` (case-insensitive).
+- `probe_runtime()` enables the default exact list only when both the configured
+  `WINCC_STATION_NAME` identity passed to the reader and the active Runtime
+  project filename match the reviewed Dakrosa2 identity. The current production
+  project allowlist contains only `WInCC_Backup_30_10_2020.mcp`
+  (case-insensitive). A mismatch fails closed with zero default exact
+  diagnostic tags.
 - Dakrosa1 continues to request zero default exact diagnostic tags.
 - The same fleet release also activates the already-merged Phase 3 Dakrosa1
   OLEDB ValueName canary. That is a separate, archive-polling diagnostic for
@@ -21,6 +25,10 @@ does not change the normal Runtime snapshot, and does not write to WinCC.
   probe boundary. No setpoint or mouse-event tag is included.
 - The 59 new names remain diagnostic-only. A later reviewed release may
   promote only sources that pass the runtime evidence gates below.
+- The existing full-raw HTTP endpoint is unauthenticated within the current
+  public telemetry architecture, so these 59 operational values will be
+  visible there during this operator-authorized canary. This accepted exposure
+  contains no command or setpoint channel and does not expand write access.
 
 The complete diagnostic list becomes 83 exact names: 24 already-live SCADA
 diagnostics, 13 MHY_2 sources, and 46 start-sequence sources.
@@ -128,6 +136,8 @@ Observed at `2026-07-14T09:50Z` before the candidate release:
 - Dakrosa2 `1.5.17`: online with 155 canonical tags, Runtime snapshot healthy,
   callback errors 0, oversized callbacks 0.
 - Existing Dakrosa2 raw diagnostic: 24 requested, 24 found, no missing names.
+- Its fresh pre-release Runtime identity was
+  `WInCC_Backup_30_10_2020.mcp`; this exact basename is the project-side gate.
 - Full process inventory is intentionally suppressed from the public raw
   payload; the 13 MHY_2 sources were not in the top-128 heuristic candidate
   subset. That absence is not evidence that the tags are missing.
