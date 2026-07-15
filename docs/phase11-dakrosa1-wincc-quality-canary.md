@@ -102,4 +102,31 @@ After both stations report `1.5.26` through the public API:
 
 ## Production result for 1.5.26
 
-Pending post-OTA evidence.
+GitHub's raw `main` endpoint was observed exposing `1.5.26` at
+`2026-07-15T01:10:44Z`.  Both stations then advanced through their existing
+OTA path without direct host access:
+
+- Dakrosa2 was first observed reporting `1.5.26` at `01:12:39.506Z`.
+- Dakrosa1 was first observed reporting `1.5.26` at `01:13:54.519Z`.
+
+The first retained Dakrosa1 raw shipment after the update was received at
+`01:13:59.236Z`.  Its canary, recorded at `01:13:10Z`, attempted five exact
+sources, observed one, and classified one as good.  The `u2_GV` result was
+`98.1500015`, native quality `128`, `quality_good=true`, `status=ok`, and
+`realtime=false`.  The snapshot contract retained 22 source tags and 30 tags
+after server derivation, with no station error.
+
+All frequency holds remained unchanged in the same canary: `bus_F` returned
+`no_data`, while `u1_F`, `u2_F`, and `u3_F` each returned a fail-closed COM
+`query_error`.  No frequency value entered the snapshot contract.
+
+Dakrosa2 retained 224 source tags, Runtime mode, 209 attempted / 206 accepted /
+3 rejected curated sources, 93 attempted / 91 accepted required sources, and
+zero callback errors.  Its post-update raw shipment, received at
+`01:14:10.099Z`, retained the exact diagnostic contract at 92 requested / 91
+found, with only `DCTC-` missing and no denied source.  `H2Excit` and
+`H3Excit` both remained Binary values of zero with state zero, so their
+diagnostic-only hold was unchanged.
+
+The post-OTA verification gate passed.  No reader, service, updater, OTA,
+canonical mapping, or portal behavior changed in this release.
