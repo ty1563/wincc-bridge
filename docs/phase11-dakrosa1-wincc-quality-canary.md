@@ -35,8 +35,8 @@ Authoritative sources:
 - [Siemens ASM System Manual, Quality Codes, page 146](https://cache.industry.siemens.com/dl/files/513/109768513/att_989333/v1/ASMSystemManual.pdf)
 
 The corrected helper accepts native QQ values `10` and `11` while continuing
-to reject Bad and Uncertain values.  Higher archive flags do not affect the QQ
-mask.
+to reject Bad and Uncertain values.  Substatus and limit bits do not affect the
+QQ mask.
 
 ## Production evidence before release
 
