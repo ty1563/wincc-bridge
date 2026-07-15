@@ -194,12 +194,38 @@ component remains presentation-only.
 | `HV-PF` | `hv_PF` | ratio, absolute | -1.05..1.05 before absolute |
 | `HV-UA/UB/UC/Utb` | `hv_U1N/U2N/U3N/U_ln_avg` | V | 0..1,000 |
 | `HV-UAB/UBC/UCA/Uptb` | `hv_U12/U23/U31/U_avg` | V | 0..1,000 |
-| `HV-KWh/KVAh` | `hv_KWh/hv_KVAh` | source counter scale; no derived use yet | 0..1e9 |
+| `HV-KWh/KVAh` | `hv_KWh/hv_KVAh` | MWh/MVAh cumulative | 0..1e9 |
+| `LV-KWh/KVAh` | `bus_KWh/bus_KVAh` | MWh/MVAh cumulative | 0..1e9 |
+| `H1/2/3-KVAh` | `u1/2/3_KVAh` | kVAh cumulative | 0..1e9 |
 | `LV-UA/UB/UC/Utb` | `bus_*` plus `lv_*` phase-neutral keys | kV | 0..50 |
 
 The `HV-*` power values are live-scaled MW/MVAr/MVA despite their source names.
-The energy counters preserve source naming but are not used in energy arithmetic
-until their engineering scale is separately verified.
+The cumulative counters preserve their source identity and reset behavior. They
+must not be relabeled as daily production, import/export direction, or the
+separate `AP+`, `AP-`, `AQ+`, and `AQ-` child-PDL registers.
+
+### Production counter-scale verification (2026-07-15)
+
+The counter units above were verified independently from 288 consecutive
+Dakrosa2 `1.5.26` production snapshots spanning 2,880 seconds. For each source,
+the counter slope `(last - first) / elapsed_hours` was compared with the mean of
+the corresponding realtime power channel over the same window:
+
+| Counter | Observed change rate | Matching mean power | Ratio |
+|---|---:|---:|---:|
+| `bus_KWh` | 2.393 units/hour | `bus_P` 2.388 MW | 1.0019 |
+| `bus_KVAh` | 2.393 units/hour | `bus_S` 2.389 MVA | 1.0014 |
+| `hv_KWh` | 2.402 units/hour | `hv_P` 2.420 MW | 0.9926 |
+| `hv_KVAh` | 2.422 units/hour | `hv_S` 2.433 MVA | 0.9956 |
+| `u1_KVAh` | 775.0 units/hour | `u1_S` 771.5 kVA | 1.0045 |
+| `u2_KVAh` | 837.5 units/hour | `u2_S` 830.1 kVA | 1.0089 |
+| `u3_KVAh` | 837.5 units/hour | `u3_S` 830.3 kVA | 1.0087 |
+
+All seven sources were Float32, `realtime=true`, and Runtime `state=0` throughout
+the accepted samples. The near-unity rate/power ratios establish MWh/MVAh for
+the station meter groups and kVAh for the per-unit apparent-energy counters.
+This verification authorizes read-only display in source units; it does not
+authorize derived daily totals or directional-energy semantics.
 
 ### Recovered A_22kV raw contract
 
