@@ -144,6 +144,22 @@ def _timestamp_age(timestamp, now_utc):
         return None
 
 
+def _wincc_quality_good(quality):
+    """Return whether native WinCC QQ bits represent a usable value.
+
+    WinCC defines 0b10 as Good (Non-Cascade) and 0b11 as Good (Cascade).
+    Do not apply the narrower OPC-good check directly to native archive codes:
+    WinCC 0x80..0xD4 is converted to OPC 0xC0 at the OPC boundary.
+
+    Source: Siemens WinCC Professional V13 SP2 Programming Reference,
+    sections 2.2.1.3 and "Quality Codes in Communication with OPC":
+    https://cache.industry.siemens.com/dl/files/968/109747968/att_920887/v1/WCC_Professional_V13_SP2_Prog_enUS_en-US.pdf
+    """
+    if quality is None:
+        return None
+    return (int(quality) & 0xC0) in (0x80, 0xC0)
+
+
 def _empty_result(spec, status="no_data"):
     return {
         "value_name": spec["value_name"],
@@ -213,7 +229,7 @@ def _read_value(recordset_factory, connection, spec, begin, end, now_utc):
             quality = int(latest["quality"])
         except (TypeError, ValueError, OverflowError):
             quality = None
-        quality_good = None if quality is None else (quality & 0xC0) == 0xC0
+        quality_good = _wincc_quality_good(quality)
         in_range = None if value is None else spec["min"] <= value <= spec["max"]
         if value is None:
             status = "invalid_value"

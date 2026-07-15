@@ -160,6 +160,23 @@ class D1OleDbCanaryTests(unittest.TestCase):
         self.assertEqual(bus["status"], "bad_quality")
         self.assertFalse(bus["realtime"])
 
+    def test_accepts_wincc_good_non_cascade_quality(self):
+        recordsets = [FakeRecordset(), FakeRecordset([{
+            "ValueID": 31,
+            "Timestamp": "2026-07-14 07:29:00.000",
+            "VariantValue": 98.41,
+            "Quality": 0x80,
+        }])] + [FakeRecordset() for _ in range(3)]
+
+        result, _, _ = self.probe(recordsets)
+        guide_vane = result["results"]["u2_GV"]
+
+        self.assertEqual(guide_vane["quality"], 0x80)
+        self.assertTrue(guide_vane["quality_good"])
+        self.assertEqual(guide_vane["status"], "ok")
+        self.assertEqual(result["good"], 1)
+        self.assertFalse(guide_vane["realtime"])
+
     def test_out_of_range_value_remains_diagnostic_only(self):
         recordsets = [FakeRecordset([{
             "ValueID": 12,
