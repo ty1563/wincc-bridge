@@ -70,6 +70,42 @@ The repeated wiring is intentional evidence from the recovered PDL:
 these into invented aliases. `AUX_LCU41_IW0` has no proven relationship to
 the three sources above.
 
+### Additional unlabeled rectangle dynamics (offline audit 2026-07-15)
+
+A later full-stream audit found eight additional dynamic rectangles outside
+the 12 labeled state cards above. They use only three distinct native names.
+This is exact PDL source/polarity evidence, but it is not yet enough for a
+canonical tag: none of the names has reviewed Runtime type/state/value
+evidence, and the recovered objects do not establish an operator-safe process
+label.
+
+| Object | Dynamics record | Native source | Recovered true / false color | Native bbox |
+| --- | ---: | --- | --- | --- |
+| `Rectangle46` | 15 at `0x490` | `QF6` | red / green | `(305,263)-(325,283)` |
+| `Rectangle5` | 16 at `0x4D0` | `A2-08` | red / black | `(804,293)-(819,323)` |
+| `Rectangle7` | 21 at `0x61C` | `A2-08` | red / black | `(951,293)-(966,323)` |
+| `Rectangle9` | 22 at `0x65E` | `A2-7-7` | red / black | `(965,408)-(985,438)` |
+| `Rectangle3` | 23 at `0x6A2` | `A2-7-7` | red / black | `(1055,408)-(1075,438)` |
+| `Rectangle34` | 24 at `0x6E6` | `A2-7-7` | red / black | `(695,408)-(715,438)` |
+| `Rectangle35` | 25 at `0x72C` | `A2-7-7` | red / black | `(875,408)-(895,438)` |
+| `Rectangle36` | 26 at `0x772` | `A2-7-7` | red / black | `(785,408)-(805,438)` |
+
+The corresponding object records start at Contents offsets `0x7C7D`,
+`0x8CD9`, `0x16732`, `0x16C95`, `0x17AD7`, `0x18919`, `0x19777`, and
+`0x1A5D5`. `QF6` uses direct Boolean color SCode at `0x4C6`
+(`true=255`, `false=65280`); `A2-08` uses the same direct Boolean form at
+`0x5CC` and `0x854` (`true=255`, `false=0`). The artifact contains six
+`A2-7-7` blocks at `0x8`, `0x112`, `0x2AE`, `0x44E`, `0x640`, and `0x74A`
+(`true=255`, `false=0`), but only five are bound to active BackColor records
+in the recovered DynamicsStream. Treat the remaining block as an unbound
+artifact candidate rather than assigning it to another rectangle.
+
+Keep all three names diagnostic candidates only. Before any later canary or
+promotion, require an explicit OTA-approved release, two fresh state-0 Runtime
+shipments with stable type/value evidence, and an independently recovered
+operator label. Do not alias `QF6` to an existing breaker key or infer the
+meaning of `A2-08`/`A2-7-7` from their spelling or color.
+
 ### MHY_2 missing numeric slots
 
 | Native slot | Exact source | Unit |
