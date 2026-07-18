@@ -89,3 +89,38 @@ After both stations report `1.5.27` through the public API:
    verbatim in this document's addendum before any promotion decision.
 3. Confirm Dakrosa1 remains healthy with its existing published-tag count
    and no snapshot error.
+
+## Addendum: production evidence and verdict (2026-07-18)
+
+OTA rollout completed within one poll cycle of the push; both stations
+reported `1.5.27` through the public stations API with no snapshot error
+(Dakrosa1 21 source tags, Dakrosa2 224 canonical tags, unchanged).
+
+Two independent `1.5.27` raw shipments carried the new 93-name exact probe
+(`exact.requested = 93`, `missing = ["DCTC-"]` only) and returned the same
+`LV-UCA` result verbatim:
+
+- shipment `dump_utc = 2026-07-18T08:01:45Z`:
+  `{"id": 2107, "name": "LV-UCA", "type_code": 8, "type_name":
+  "Floating-point number 32-bit IEEE 754", "type_size": 4, "value": 0,
+  "state": 1280, "quality": null}`
+- shipment `dump_utc = 2026-07-18T08:06:45Z`: identical fields and values,
+  same tag id `2107`.
+
+Reading: the name **exists** in the Data Manager as a configured float32 tag,
+so the earlier "absent from the project" hypothesis is wrong.  The state
+`1280` decomposes as `0x500 = 0x400 + 0x100`, which the Siemens DM variable
+state flags document as address error plus startup value: the tag never
+received a process value from the PLC/driver and still carries its startup
+default `0`.  The sibling sources `LV-UAB`/`LV-UBC` deliver live ~23.7 kV
+values through the same meter, so the fault is specific to this tag's
+configured address.
+
+Verdict per the success criteria: **found with `state != 0` — keep
+diagnostic, promotion stays blocked.**  The remedy is plant-side and small:
+compare the `LV-UCA` tag address in WinCC Tag Management against the working
+`LV-UAB`/`LV-UBC` addresses and correct the offset.  Once a healthy
+`state == 0` sample with a plausible ~23-24 kV value appears in this probe,
+a follow-up release re-promotes the curated `UCA` row unchanged and the
+portal's waiting UCA and voltage-imbalance fields light up with no portal
+change.  `LV-UCA` stays in the exact probe until that decision.
