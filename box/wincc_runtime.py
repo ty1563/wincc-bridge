@@ -330,7 +330,10 @@ def _station2_curated_specs():
         ("PF", ("bus_PF", "lv_PF"), -1.05, 1.05),
         ("UAB", ("bus_U12", "lv_U12"), 0.0, 50000.0),
         ("UBC", ("bus_U23", "lv_U23"), 0.0, 50000.0),
-        ("UCA", ("bus_U31", "lv_U31"), 0.0, 50000.0),
+        # UCA (bus_U31/lv_U31) is demoted to the exact diagnostic probe in
+        # 1.5.27: the spec had requested LV-UCA since 1.5.16 without one
+        # published sample while LV-UAB/LV-UBC deliver live values.  See
+        # EXPORT_METER_DIAGNOSTIC_TAGS and docs/phase12.
         ("Uptb", ("bus_U_avg", "lv_U_avg"), 0.0, 50000.0),
         ("UA", ("bus_U1N", "lv_U1N"), 0.0, 50.0),
         ("UB", ("bus_U2N", "lv_U2N"), 0.0, 50.0),
@@ -617,13 +620,25 @@ H2_DIRECTIONAL_ENERGY_DIAGNOSTIC_TAGS = (
     "MVARHNX_INTER_MH2",
 )
 
+# Exact read-only 22 kV export-meter line-line voltage UCA.  The curated
+# LV-UCA spec (bus_U31/lv_U31) requested this source on every snapshot cycle
+# since 1.5.16 without one published sample, while the sibling LV-UAB and
+# LV-UBC sources deliver live values.  Demoted from the curated specs to this
+# exact probe in 1.5.27 so fresh shipments show the concrete failure mode
+# (name missing from the Data Manager vs bad state vs out-of-bounds value).
+# A name must not sit in both lists, mirroring the Connect precedent.
+EXPORT_METER_DIAGNOSTIC_TAGS = (
+    "LV-UCA",
+)
+
 SCADA_DIAGNOSTIC_TAGS = (
     BASE_SCADA_DIAGNOSTIC_TAGS +
     MHY2_DIAGNOSTIC_TAGS +
     START_SEQUENCE_DIAGNOSTIC_TAGS +
     START_EXCITATION_DIAGNOSTIC_TAGS +
     OPERATOR_DIAGNOSTIC_TAGS +
-    H2_DIRECTIONAL_ENERGY_DIAGNOSTIC_TAGS
+    H2_DIRECTIONAL_ENERGY_DIAGNOSTIC_TAGS +
+    EXPORT_METER_DIAGNOSTIC_TAGS
 )
 
 class WinCCRuntimeAPI:

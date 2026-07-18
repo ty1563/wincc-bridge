@@ -404,9 +404,9 @@ class WinCCRuntimeProbeTests(unittest.TestCase):
             "LV-Utb": (0.0, 50.0, False),
         }
 
-        self.assertEqual(len(specs), 209)
+        self.assertEqual(len(specs), 208)
         self.assertEqual(
-            sum(len(spec["keys"]) for spec in specs.values()), 228)
+            sum(len(spec["keys"]) for spec in specs.values()), 226)
         for source_name, canonical_keys in expected_keys.items():
             self.assertIn(source_name, specs)
             self.assertEqual(specs[source_name]["keys"], canonical_keys)
@@ -516,8 +516,8 @@ class WinCCRuntimeProbeTests(unittest.TestCase):
         }
 
         self.assertEqual(len(expected), 52)
-        self.assertEqual(len(specs), 209)
-        self.assertEqual(sum(len(spec["keys"]) for spec in specs.values()), 228)
+        self.assertEqual(len(specs), 208)
+        self.assertEqual(sum(len(spec["keys"]) for spec in specs.values()), 226)
         self.assertLessEqual(len(specs), 256)
         for source_name, (keys, low, high) in expected.items():
             self.assertIn(source_name, specs)
@@ -1152,6 +1152,30 @@ class WinCCRuntimeProbeTests(unittest.TestCase):
         )
         self.assertNotIn("H1Excit", wincc_runtime.SCADA_DIAGNOSTIC_TAGS)
 
+    def test_export_meter_uca_diagnostic_is_exact_and_not_canonical(self):
+        self.assertEqual(
+            wincc_runtime.EXPORT_METER_DIAGNOSTIC_TAGS,
+            ("LV-UCA",),
+        )
+        canonical_sources = {
+            spec["name"] for spec in wincc_runtime.STATION2_CURATED_SPECS
+        }
+        self.assertTrue(
+            set(
+                wincc_runtime.EXPORT_METER_DIAGNOSTIC_TAGS
+            ).isdisjoint(canonical_sources)
+        )
+        # The demoted spec must leave no canonical key behind: bus_U31/lv_U31
+        # only return when a future release re-promotes a proven source.
+        canonical_keys = {
+            key
+            for spec in wincc_runtime.STATION2_CURATED_SPECS
+            for key in spec["keys"]
+        }
+        self.assertNotIn("bus_U31", canonical_keys)
+        self.assertNotIn("lv_U31", canonical_keys)
+        self.assertIn("LV-UCA", wincc_runtime.SCADA_DIAGNOSTIC_TAGS)
+
     def test_h2_directional_energy_diagnostics_are_exact_and_not_canonical(self):
         self.assertEqual(
             wincc_runtime.H2_DIRECTIONAL_ENERGY_DIAGNOSTIC_TAGS,
@@ -1218,7 +1242,7 @@ class WinCCRuntimeProbeTests(unittest.TestCase):
             candidate_limit=0,
         )
 
-        self.assertEqual(result["exact"]["requested"], 92)
+        self.assertEqual(result["exact"]["requested"], 93)
         self.assertEqual(result["exact"]["found"], 4)
         self.assertEqual(
             [item["name"] for item in result["exact"]["tags"]],
@@ -1406,7 +1430,7 @@ class WinCCRuntimeProbeTests(unittest.TestCase):
             candidate_limit=0,
         )
 
-        self.assertEqual(result["exact"]["requested"], 92)
+        self.assertEqual(result["exact"]["requested"], 93)
         self.assertEqual(result["exact"]["found"], 3)
         self.assertEqual(result["exact"]["missing"], [
             name for name in wincc_runtime.SCADA_DIAGNOSTIC_TAGS
@@ -1467,7 +1491,7 @@ class WinCCRuntimeProbeTests(unittest.TestCase):
             inventory_limit=0,
             candidate_limit=0,
         )
-        self.assertEqual(result["exact"]["requested"], 92)
+        self.assertEqual(result["exact"]["requested"], 93)
         self.assertEqual(
             [item["name"] for item in result["exact"]["tags"]],
             list(wincc_runtime.START_EXCITATION_DIAGNOSTIC_TAGS),
@@ -1503,7 +1527,7 @@ class WinCCRuntimeProbeTests(unittest.TestCase):
         names = wincc_runtime.SCADA_DIAGNOSTIC_TAGS
         folded = [name.lower() for name in names]
 
-        self.assertEqual(len(names), 92)
+        self.assertEqual(len(names), 93)
         self.assertEqual(len(folded), len(set(folded)))
         self.assertTrue(set(wincc_runtime.MHY2_DIAGNOSTIC_TAGS) <= set(names))
         self.assertTrue(set(wincc_runtime.START_SEQUENCE_DIAGNOSTIC_TAGS) <= set(names))
@@ -1513,6 +1537,9 @@ class WinCCRuntimeProbeTests(unittest.TestCase):
         )
         self.assertTrue(
             set(wincc_runtime.H2_DIRECTIONAL_ENERGY_DIAGNOSTIC_TAGS) <= set(names)
+        )
+        self.assertTrue(
+            set(wincc_runtime.EXPORT_METER_DIAGNOSTIC_TAGS) <= set(names)
         )
         self.assertFalse(any("command" in name or name.startswith("click") for name in folded))
 
